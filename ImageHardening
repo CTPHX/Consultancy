@@ -1,0 +1,9 @@
+#Create Local Repository#
+if (!(test-path -path c:\temp)) {new-item -path c:\temp -itemtype directory}
+
+#Download Microsoft Security Compliance Toolkit 1.0
+Invoke-WebRequest -Uri 'https://download.microsoft.com/download/8/5/C/85C25433-A1B0-4FFA-9429-7E023E7DA8D8/Microsoft%20Edge%20v88%20Security%20Baseline.zip' -OutFile 'c:\temp\edgebaseline.zip' -ErrorAction Stop
+Expand-Archive -Path 'C:\temp\edgebaseline.zip' -DestinationPath 'C:\temp\edgebaseline\'  -Force
+
+Invoke-WebRequest -Uri 'https://download.microsoft.com/download/8/5/C/85C25433-A1B0-4FFA-9429-7E023E7DA8D8/Windows%2010%20Version%2020H2%20and%20Windows%20Server%20Version%2020H2%20Security%20Baseline.zip' -OutFile 'c:\temp\20h2baseline.zip' -ErrorAction Stop
+Expand-Archive -Path 'C:\temp\20h2baseline.zip' -DestinationPath 'C:\temp\20h2baseline\'  -Force
