@@ -347,7 +347,7 @@ if ((gwmi win32_computersystem).partofdomain -eq $false) {exit 0}
 if (Test-Path "C:\WVD\DONOTDELETE.log") {exit 0}
 Set-ExecutionPolicy -ExecutionPolicy ByPass -Force
 change logon /drainuntilrestart
-.\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion 2009 -Verbose *> "C:\WVD\DONOTDELETE.log" -Restart 
+.\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion 2009 -AcceptEULA -Verbose *> "C:\WVD\DONOTDELETE.log" -Restart 
 '}
 
 #Creating Scheduled Task for WVD Optimisation 
