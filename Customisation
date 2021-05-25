@@ -1,8 +1,8 @@
 ########################################################
 #Set variables
 $FSLogixProfilePath1 = "\\wvdfiles01.file.core.windows.net\profiles"
-$FSLogixProfilePath2 = "\\wvdfiles01.file.core.windows.net\profiles"
-$FSLogixProfilePath3 = "\\wvdfiles01.file.core.windows.net\profiles"
+#$FSLogixProfilePath2 = "\\wvdfiles01.file.core.windows.net\profiles"
+#$FSLogixProfilePath3 = "\\wvdfiles01.file.core.windows.net\profiles"
 $AppAttachPath = "\\wvdfiles01.file.core.windows.net\profiles"
 
 $AADTenantID  = "xxxxx-xxxxx-xxxxxx-xxxxxxx-xxxxxx"
@@ -497,10 +497,10 @@ Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHD"
 Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHDX"
 Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHD"
 Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHDX"
-Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHD"
-Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHDX"
-Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHD"
-Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHDX"
+#Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHD"
+#Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHDX"
+#Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHD"
+#Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHDX"
 Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccd.exe"
 Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccds.exe"
 Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxsvc.exe"
@@ -521,4 +521,3 @@ if (test-path -path c:\wvd\Language) {
 Get-ChildItem -Path 'C:\WVD\Language' -Recurse | Remove-Item -Recurse -Force
 Remove-Item -Path 'C:\WVD\Language' -Force | Out-Null
 } 
-
