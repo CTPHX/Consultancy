@@ -18,10 +18,13 @@ $ImagesRG = ""
 $NetworkRG = ""
 
 #Provide the size of the virtual machine
-$virtualMachineSize = ''
+$virtualMachineSize = 'Standard_D2ds_v5'
 
 #Provide the name of an existing virtual network where virtual machine will be created
 $virtualNetworkName = ''
+
+#Provide temporary resource group for disposable resources
+$TempRG = "AVD-Clone-" + (get-date -Format FileDateTime)
 
 ####################################################################################################################
 
@@ -35,7 +38,10 @@ Connect-AzAccount -Tenant $tenantId -Subscription $subscriptionId
 
 $ErrorActionPreference = "Stop"
 
-$imageVersions = Get-AzResource -ResourceType Microsoft.Compute/galleries/images/versions | select-object -last 1
+$galleryImageDefinitionName = Get-AzResource -ResourceType Microsoft.Compute/galleries/images| Out-GridView -OutputMode Single -Title 'Select the Image Definition'
+$galleryImageDefinitionName = $galleryImageDefinitionName.Name.split("/")[1]
+
+$imageVersions = Get-AzResource -ResourceType Microsoft.Compute/galleries/images/versions | where-object{$_.Name -Like "*$galleryImageDefinitionName*"} | select-object -last 1
  
   if ($imageVersions -eq $null){
      $versionNumber = 1
@@ -57,8 +63,16 @@ Exit}
 
 ####################################################################################################################
 
+#Prompt the user to select the Network Subnet to be used
+$vnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $NetworkRG | Get-AzVirtualNetworkSubnetConfig | Select-Object -Property Name, Id | Out-GridView -OutputMode Single -Title 'Select the Network Subnet to be used'
+
+####################################################################################################################
+
+#Create temporary resource group
+
+New-AzResourceGroup -Name $TempRG -Location $Location
+
 #Clone Gold Image to a new VM (e.g. Gold-VM-V4)
-Write-Host 'Cloning VM - Please Wait' -foregroundcolor red
 
 $masterImage = $gold.name
 
@@ -77,16 +91,16 @@ $virtualMachineName = ($masterImage + "-VM-" + "V" + $versionNumber)
 $VMOSDisk=(Get-AZVM -ResourceGroupName $ImagesRG -Name $VMName).StorageProfile.OsDisk.Name
 $Disk = Get-AzDisk -ResourceGroupName $ImagesRG -DiskName $VMOSDisk
 $SnapshotConfig =  New-AzSnapshotConfig -SourceUri $Disk.Id -CreateOption Copy -Location $Location
-$Snapshot=New-AzSnapshot -Snapshot $SnapshotConfig -SnapshotName $SnapshotName -ResourceGroupName $ImagesRG
+$Snapshot=New-AzSnapshot -Snapshot $SnapshotConfig -SnapshotName $SnapshotName -ResourceGroupName $TempRG
 
 #Set the context to the subscription Id where Managed Disk will be created
 Select-AzSubscription -SubscriptionId $SubscriptionId
 
-$snapshot = Get-AzSnapshot -ResourceGroupName $ImagesRG -SnapshotName $snapshotName
+$snapshot = Get-AzSnapshot -ResourceGroupName $TempRG -SnapshotName $snapshotName
 
 $diskConfig = New-AzDiskConfig -Location $snapshot.Location -SourceResourceId $snapshot.Id -CreateOption Copy
 
-$disk = New-AzDisk -Disk $diskConfig -ResourceGroupName $ImagesRG -DiskName $osDiskName
+$disk = New-AzDisk -Disk $diskConfig -ResourceGroupName $TempRG -DiskName $osDiskName
 
 #Initialize virtual machine configuration
 $VirtualMachine = New-AzVMConfig -VMName $virtualMachineName -VMSize $virtualMachineSize
@@ -101,20 +115,19 @@ $VirtualMachine = Set-AzVMOSDisk -VM $VirtualMachine -ManagedDiskId $disk.Id -Cr
 #$publicIp = New-AzPublicIpAddress -Name ($VirtualMachineName.ToLower()+'_ip') -ResourceGroupName $resourceGroupName -Location $snapshot.Location -AllocationMethod Dynamic
 
 #Get the virtual network where virtual machine will be hosted
-$vnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $NetworkRG
+#$vnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $NetworkRG
 
 # Create NIC in the first subnet of the virtual network
-$nic = New-AzNetworkInterface -Name ($VirtualMachineName.ToLower()+'_nic') -ResourceGroupName $ImagesRG -Location $snapshot.Location -SubnetId $vnet.Subnets[0].Id #-PublicIpAddressId $publicIp.Id
+$nic = New-AzNetworkInterface -Name ($VirtualMachineName.ToLower()+'_nic') -ResourceGroupName $TempRG -Location $snapshot.Location -SubnetId $vnet.Id #-PublicIpAddressId $publicIp.Id
 
 $VirtualMachine = Add-AzVMNetworkInterface -VM $VirtualMachine -Id $nic.Id
 
 #Create the virtual machine with Managed Disk
-New-AzVM -VM $VirtualMachine -ResourceGroupName $ImagesRG -Location $snapshot.Location
+New-AzVM -VM $VirtualMachine -ResourceGroupName $TempRG -Location $snapshot.Location -DisableBginfoExtension
 
 ####################################################################################################################
 
 #Sysprep the cloned gold image and generalize ready for deployment to the Azure Compute Gallery
-Write-Host 'Running Sysprep on VM - Please Wait' -foregroundcolor red
 
 $content = 
 @"
@@ -128,29 +141,26 @@ $content =
 Set-Content -Path .\sysprep.ps1 -Value $content
 
 $vm = Get-AzVM -Name $virtualMachineName
-$vm | Invoke-AzVMRunCommand -CommandId "RunPowerShellScript" -ScriptPath .\sysprep.ps1 -Parameter @{sysprep = "C:\Windows\System32\Sysprep\Sysprep.exe";arg = "/generalize /oobe /quiet /quit"}
+$vm | Invoke-AzVMRunCommand -CommandId "RunPowerShellScript" -ScriptPath .\sysprep.ps1 -Parameter @{sysprep = "C:\Windows\System32\Sysprep\Sysprep.exe";arg = "/generalize /oobe /mode:vm /quit"}
 
-Stop-AzVM -Name $virtualMachineName -ResourceGroupName $ImagesRG -force
+Stop-AzVM -Name $virtualMachineName -ResourceGroupName $TempRG -force
 
 $vm | Set-AzVm -Generalized
 
 ####################################################################################################################
 
 #Create an Azure Cumpute Gallery image from to cloned gold image
-Write-Host 'Creating image and sending to Azure Compute Gallery - Please Wait' -foregroundcolor red
 
 $galleries = Get-AzResource -ResourceType Microsoft.Compute/galleries
 $galleriesRG=$galleries.ResourceGroupName
-#$galleryName = "acg"
 $galleryName=$galleries.Name
-#$galleryImageDefinitionName = "test"
-$imageDefinitions = Get-AzResource -ResourceType Microsoft.Compute/galleries/images
-$galleryImageDefinitionName=$imageDefinitions.Name.split("/")[1]
 $galleryImageVersionName = "0.0.$versionNumber"
-#$location = "uksouth"
-#$sourceImageId = "/subscriptions/9125ff31-3037-4ddb-a83a-73e664be6d94/resourceGroups/AVD-IMAGES/providers/Microsoft.Compute/virtualMachines/gold-VM-V20220114T1401478562"
-$sourceImageVM=get-azvm -ResourceGroupName $ImagesRG -Name $virtualMachineName
+$sourceImageVM=get-azvm -ResourceGroupName $TempRG -Name $virtualMachineName
 $sourceImageId=$sourceImageVM.Id
 New-AzGalleryImageVersion -ResourceGroupName $galleriesRG -GalleryName $galleryName -GalleryImageDefinitionName $galleryImageDefinitionName -Name $galleryImageVersionName -Location $location -SourceImageId $sourceImageId
 
 #######################################################################################################################
+
+#Cleanup
+
+Remove-AzResourceGroup -Name $TempRG -Force
