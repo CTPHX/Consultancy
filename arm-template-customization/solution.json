@@ -38,7 +38,7 @@
         "typeHandlerVersion": "1.10",
         "autoUpgradeMinorVersion": true,
         "settings": {
-          "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File script.ps1",
+          "commandToExecute": "powershell -ExecutionPolicy Unrestricted -File https://github.com/CTPHX/Consultancy/blob/main/arm-template-customization/script.ps1",
           "fileUris": [
             "[parameters('ScriptUri')]"
           ],
