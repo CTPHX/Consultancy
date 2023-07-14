@@ -12,7 +12,7 @@
             "value": 2
         },
         "ScriptUri": {
-            "value": "https://github.com/CTPHX/Consultancy/blob/main/arm-template-customization/script.ps1"
+            "value": "https://github.com/CTPHX/Consultancy/blob/main/arm-template-customization/script2.ps1"
         },
         "VirtualMachineIndex": {
             "value": 0
