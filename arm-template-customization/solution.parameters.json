@@ -3,16 +3,16 @@
     "contentVersion": "1.0.0.0",
     "parameters": {
         "Location": {
-            "value": ""
+            "value": "UK South"
         },
         "NamePrefix": {
-            "value": ""
+            "value": "avd-dt"
         },
         "NumberOfVms": {
-            "value": 1
+            "value": 2
         },
         "ScriptUri": {
-            "value": ""
+            "value": "https://github.com/CTPHX/Consultancy/blob/main/arm-template-customization/script.ps1"
         },
         "VirtualMachineIndex": {
             "value": 0
