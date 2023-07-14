@@ -12,134 +12,145 @@ $AADTenantID = "xxxx.xxxx.xxxx.xxxx"
 ## Add Languages to running Windows Image for Capture##
 ########################################################
 
+    Create Local Repository#
+   if (!(test-path -path c:\temp)) {new-item -path c:\temp -itemtype directory}
+    if (!(test-path -path C:\AVD\Language)) {new-item -path C:\AVD\Language -itemtype directory}
+    if (!(test-path -path C:\AVD\Language\en-gb)) {new-item -path C:\AVD\Language\en-gb -itemtype directory}
+    
+$URLLP = "https://raw.githubusercontent.com/Azure/RDS-Templates/master/CustomImageTemplateScripts/CustomImageTemplateScripts_2022-11-23/InstallLanguagePacks.ps1"
+$ZIPLP = "C:\AFD\Language\LP.ps1"
+Invoke-WebRequest -Uri $URLLP -OutFile $ZIPLP -ErrorAction 'Stop'
+
+& C:\AFD\Language\LP.ps1
+
 ##Check If script has been run before##
-if (!(Test-Path "C:\AVD\Language.txt")) {
+#if (!(Test-Path "C:\AVD\Language.txt")) {
 
     ##Disable Language Pack Cleanup##
-    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -TaskName "Pre-staged app cleanup"
+   # Disable-ScheduledTask -TaskPath "\Microsoft\Windows\AppxDeploymentClient\" -TaskName "Pre-staged app cleanup"
     
-    #Create Local Repository#
-    if (!(test-path -path c:\temp)) {new-item -path c:\temp -itemtype directory}
+    Create Local Repository#
+   #if (!(test-path -path c:\temp)) {new-item -path c:\temp -itemtype directory}
     if (!(test-path -path C:\AVD\Language)) {new-item -path C:\AVD\Language -itemtype directory}
     if (!(test-path -path C:\AVD\Language\en-gb)) {new-item -path C:\AVD\Language\en-gb -itemtype directory}
     
     
-  $ProgressPreference = 'SilentlyContinue'
+ # $ProgressPreference = 'SilentlyContinue'
     #Download Language Pack ISO#
-    Invoke-WebRequest -Uri 'https://software-download.microsoft.com/download/pr/19041.1.191206-1406.vb_release_CLIENTLANGPACKDVD_OEM_MULTI.iso' -OutFile 'c:\temp\Language.iso'
+   # Invoke-WebRequest -Uri 'https://software-download.microsoft.com/download/pr/19041.1.191206-1406.vb_release_CLIENTLANGPACKDVD_OEM_MULTI.iso' -OutFile 'c:\temp\Language.iso'
     #Download FOD ISO#
-    Invoke-WebRequest -Uri 'https://software-download.microsoft.com/download/pr/19041.1.191206-1406.vb_release_amd64fre_FOD-PACKAGES_OEM_PT1_amd64fre_MULTI.iso' -OutFile 'c:\temp\FOD.iso'
-$ProgressPreference = 'Continue'
+  #  Invoke-WebRequest -Uri 'https://software-download.microsoft.com/download/pr/19041.1.191206-1406.vb_release_amd64fre_FOD-PACKAGES_OEM_PT1_amd64fre_MULTI.iso' -OutFile 'c:\temp\FOD.iso'
+#$ProgressPreference = 'Continue'
 
     ##Mount Language ISO##
     
-    $isoImg = "C:\temp\language.iso"
+  #  $isoImg = "C:\temp\language.iso"
     ## Drive letter - use desired drive letter
-    $driveLetter = "X:"
+  #  $driveLetter = "X:"
     
     ## Mount the ISO, without having a drive letter auto-assigned
-    $diskImg = Mount-DiskImage -ImagePath $isoImg  -NoDriveLetter
+  #  $diskImg = Mount-DiskImage -ImagePath $isoImg  -NoDriveLetter
     
     ## Get mounted ISO volume
-    $volInfo = $diskImg | Get-Volume
+   # $volInfo = $diskImg | Get-Volume
     
     ## Mount volume with specified drive letter (requires Administrator access)
-    mountvol $driveLetter $volInfo.UniqueId
-    Start-Sleep -Seconds 10
+   # mountvol $driveLetter $volInfo.UniqueId
+   # Start-Sleep -Seconds 10
     # Copy files to C:\AVD
-    Copy-Item "X:\LocalExperiencePack\en-gb\LanguageExperiencePack.en-GB.Neutral.appx" "c:\AVD\language\en-gb"
-    Copy-Item "X:\LocalExperiencePack\en-gb\License.xml" "C:\AVD\language\en-gb"
-    Copy-Item "X:\x64\Langpacks\Microsoft-Windows-Client-Language-Pack_x64_en-gb.cab" "c:\AVD\language"
+    #Copy-Item "X:\LocalExperiencePack\en-gb\LanguageExperiencePack.en-GB.Neutral.appx" "c:\AVD\language\en-gb"
+    #Copy-Item "X:\LocalExperiencePack\en-gb\License.xml" "C:\AVD\language\en-gb"
+   # Copy-Item "X:\x64\Langpacks\Microsoft-Windows-Client-Language-Pack_x64_en-gb.cab" "c:\AVD\language"
     
     ##Unmount drive
-    DisMount-DiskImage -ImagePath $isoImg  
+   # DisMount-DiskImage -ImagePath $isoImg  
     
     ##Mount FOD ISO#
     
-    $isoImg = "C:\temp\FOD.iso"
+  #  $isoImg = "C:\temp\FOD.iso"
     # Drive letter - use desired drive letter
-    $driveLetter = "Y:"
+  #  $driveLetter = "Y:"
     
     # Mount the ISO, without having a drive letter auto-assigned
-    $diskImg = Mount-DiskImage -ImagePath $isoImg  -NoDriveLetter
+   # $diskImg = Mount-DiskImage -ImagePath $isoImg  -NoDriveLetter
     
     # Get mounted ISO volume
-    $volInfo = $diskImg | Get-Volume
+  #  $volInfo = $diskImg | Get-Volume
     
     # Mount volume with specified drive letter (requires Administrator access)
-    mountvol $driveLetter $volInfo.UniqueId
-    Start-Sleep -Seconds 10
+   # mountvol $driveLetter $volInfo.UniqueId
+   # Start-Sleep -Seconds 10
     # Copy files to C:\AVD
-    get-childitem -Recurse -path "Y:\" -filter '*en-gb*' | Copy-Item -Destination "C:\AVD\Language"
+   # get-childitem -Recurse -path "Y:\" -filter '*en-gb*' | Copy-Item -Destination "C:\AVD\Language"
     
     #Unmount drive
-    DisMount-DiskImage -ImagePath $isoImg
+   # DisMount-DiskImage -ImagePath $isoImg
     
     ##Set Language Pack Content Stores##
-    [string]$LIPContent = "C:\AVD\Language"
+  #  [string]$LIPContent = "C:\AVD\Language"
     
     ##United Kingdom##
-    Add-AppProvisionedPackage -Online -PackagePath $LIPContent\en-gb\LanguageExperiencePack.en-gb.Neutral.appx -LicensePath $LIPContent\en-gb\License.xml
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Client-Language-Pack_x64_en-gb.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Basic-en-gb-Package~31bf3856ad364e35~amd64~~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Handwriting-en-gb-Package~31bf3856ad364e35~amd64~~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-OCR-en-gb-Package~31bf3856ad364e35~amd64~~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Speech-en-gb-Package~31bf3856ad364e35~amd64~~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-TextToSpeech-en-gb-Package~31bf3856ad364e35~amd64~~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-NetFx3-OnDemand-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-InternetExplorer-Optional-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-MSPaint-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Notepad-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-PowerShell-ISE-FOD-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Printing-WFS-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-StepsRecorder-Package~31bf3856ad364e35~amd64~en-gb~.cab
-    Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-WordPad-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
+   # Add-AppProvisionedPackage -Online -PackagePath $LIPContent\en-gb\LanguageExperiencePack.en-gb.Neutral.appx -LicensePath $LIPContent\en-gb\License.xml
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Client-Language-Pack_x64_en-gb.cab
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Basic-en-gb-Package~31bf3856ad364e35~amd64~~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Handwriting-en-gb-Package~31bf3856ad364e35~amd64~~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-OCR-en-gb-Package~31bf3856ad364e35~amd64~~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-Speech-en-gb-Package~31bf3856ad364e35~amd64~~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-LanguageFeatures-TextToSpeech-en-gb-Package~31bf3856ad364e35~amd64~~.cab
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-NetFx3-OnDemand-Package~31bf3856ad364e35~amd64~en-gb~.cab
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-InternetExplorer-Optional-Package~31bf3856ad364e35~amd64~en-gb~.cab
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-MSPaint-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Notepad-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-PowerShell-ISE-FOD-Package~31bf3856ad364e35~amd64~en-gb~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-Printing-WFS-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
+   # Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-StepsRecorder-Package~31bf3856ad364e35~amd64~en-gb~.cab
+    #Add-WindowsPackage -Online -PackagePath $LIPContent\Microsoft-Windows-WordPad-FoD-Package~31bf3856ad364e35~amd64~en-gb~.cab
     
     
     #Create region.xml file to set language for new users
-    $RegionalSettings = "C:\AVD\Region.xml"
+   # $RegionalSettings = "C:\AVD\Region.xml"
     
-    if (!(test-path -path c:\AVD\Region.xml)) {new-item -path c:\AVD -name Region.xml -ItemType File -Value '
-    <gs:GlobalizationServices xmlns:gs="urn:longhornGlobalizationUnattend"> 
-    <!--User List-->
-    <gs:UserList>
-        <gs:User UserID="Current" CopySettingsToDefaultUserAcct="true" CopySettingsToSystemAcct="true"/> 
-    </gs:UserList>
-    <!-- user locale -->
-    <gs:UserLocale> 
-        <gs:Locale Name="en-GB" SetAsCurrent="true"/> 
-    </gs:UserLocale>
-    <!-- system locale -->
-    <gs:SystemLocale Name="en-GB"/>
-    <!-- GeoID -->
-    <gs:LocationPreferences> 
-        <gs:GeoID Value="242"/> 
-    </gs:LocationPreferences>
-    <gs:MUILanguagePreferences>
-           <gs:MUILanguage Value="en-GB"/>
-           <gs:MUIFallback Value="en-US"/>
-    </gs:MUILanguagePreferences>
-    <!-- input preferences -->
-    <gs:InputPreferences>
-        <!--en-GB-->
-        <gs:InputLanguageID Action="add" ID="0809:00000809" Default="true"/> 
-    </gs:InputPreferences>
-    </gs:GlobalizationServices>'
-    }
+   # if (!(test-path -path c:\AVD\Region.xml)) {new-item -path c:\AVD -name Region.xml -ItemType File -Value '
+    #<gs:GlobalizationServices xmlns:gs="urn:longhornGlobalizationUnattend"> 
+   # <!--User List-->
+   # <gs:UserList>
+   #     <gs:User UserID="Current" CopySettingsToDefaultUserAcct="true" CopySettingsToSystemAcct="true"/> 
+   # </gs:UserList>
+    #<!-- user locale -->
+    #<gs:UserLocale> 
+    #    <gs:Locale Name="en-GB" SetAsCurrent="true"/> 
+    #</gs:UserLocale>
+#    <!-- system locale -->
+ #   <gs:SystemLocale Name="en-GB"/>
+  #  <!-- GeoID -->
+   # <gs:LocationPreferences> 
+    #    <gs:GeoID Value="242"/> 
+    #</gs:LocationPreferences>
+    #<gs:MUILanguagePreferences>
+    ##       <gs:MUILanguage Value="en-GB"/>
+    #       <gs:MUIFallback Value="en-US"/>
+    #</gs:MUILanguagePreferences>
+    #<!-- input preferences -->
+    #<gs:InputPreferences>
+    #    <!--en-GB-->
+    #    <gs:InputLanguageID Action="add" ID="0809:00000809" Default="true"/> 
+    #</gs:InputPreferences>
+    #</gs:GlobalizationServices>'
+    #}
     
     # Set Locale, language etc. 
-    & $env:SystemRoot\System32\control.exe "intl.cpl,,/f:`"$RegionalSettings`""
+  #  & $env:SystemRoot\System32\control.exe "intl.cpl,,/f:`"$RegionalSettings`""
     
     # Set languages/culture. Not needed perse.
-    Set-WinSystemLocale en-GB
-    Set-WinUserLanguageList -LanguageList en-GB -Force
-    Set-Culture -CultureInfo en-GB
-    Set-WinHomeLocation -GeoId 242
-    Set-TimeZone -Name "GMT Standard Time"
+ #   Set-WinSystemLocale en-GB
+  #  Set-WinUserLanguageList -LanguageList en-GB -Force
+   # Set-Culture -CultureInfo en-GB
+    #Set-WinHomeLocation -GeoId 242
+   # Set-TimeZone -Name "GMT Standard Time"
     
     
-    Write-Output 'language pack installed' | Out-File 'c:\AVD\Language.txt' -Append
-    }
+    #Write-Output 'language pack installed' | Out-File 'c:\AVD\Language.txt' -Append
+    #}
     ############# END OF LANGUAGE PACK INSTALLATION ############
 
 
