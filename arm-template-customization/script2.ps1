@@ -18,7 +18,7 @@ $AADTenantID = "xxxx.xxxx.xxxx.xxxx"
     if (!(test-path -path C:\AVD\Language\en-gb)) {new-item -path C:\AVD\Language\en-gb -itemtype directory}
     
 $URLLP = "https://raw.githubusercontent.com/Azure/RDS-Templates/master/CustomImageTemplateScripts/CustomImageTemplateScripts_2022-11-23/InstallLanguagePacks.ps1"
-$ZIPLP = "C:\AFD\Language\LP.ps1"
+$ZIPLP = "C:\AVD\Language\LP.ps1"
 Invoke-WebRequest -Uri $URLLP -OutFile $ZIPLP -ErrorAction 'Stop'
 
 & C:\AFD\Language\LP.ps1
