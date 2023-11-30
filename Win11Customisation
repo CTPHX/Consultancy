@@ -1,0 +1,214 @@
+########################################################
+#Set variables
+$FSLogixProfilePath1 = "\\stoXXX.file.core.windows.net\profiles01"
+$FSLogixProfilePath2 = "\\stoXXX.file.core.windows.net\profiles02"
+#$FSLogixProfilePath3 = "\\stoXXX.file.core.windows.net\profiles03"
+#$FSLogixProfilePath4 = "\\stoXXX.file.core.windows.net\fprofiles04"
+#$FSLogixProfilePath5 = "\\stoXXX.file.core.windows.net\profiles05"
+#$FSLogixProfilePath6 = "\\stoXXX.file.core.windows.net\profiles06"
+
+#$AppAttachPath = "\\stxxxavdfiles01.file.core.windows.net\appattach"
+
+$AADTenantID = "490a8197-7b83-4f10-89b9-83189be3835e"
+########################################################
+
+########################################################
+## Add Languages to running Windows Image for Capture##
+########################################################
+
+Install-Language en-GB
+Set-SystemPreferredUILanguage en-GB
+
+    ############# END OF LANGUAGE PACK INSTALLATION ############
+
+ 
+
+Write-Host '*** AVD Customisation *** Stop the custimization when Error occurs ***'
+#$ErroractionPreference='Stop'
+$ErroractionPreference='Continue'
+
+
+#####################################################################################
+#This section configures Microsoft best practice settings for AVD#
+#####################################################################################
+
+Write-Host '*** AVD Customisation *** START OS CONFIG *** Update the recommended OS configuration ***'
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Prevent Microsoft Edge first run page***'
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main" /v PreventFirstRunPage /t REG_DWORD /d 1 /f
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Specify Start layout for Windows 10 PCs (optional) ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' -Name 'SpecialRoamingOverrideAllowed' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+
+# Note: Remove if not required!
+Write-Host '*** AVD Customisation *** SET OS REGKEYS *** Fix 5k resolution support ***'
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxMonitors' -Value '4' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxXResolution' -Value '5120' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxYResolution' -Value '2880' -PropertyType DWORD -Force | Out-Null
+New-Item -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxMonitors' -Value '4' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxXResolution' -Value '5120' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxYResolution' -Value '2880' -PropertyType DWORD -Force | Out-Null
+
+
+Write-Host '*** AVD Customisation *** CONFIG OFFICE Regkeys *** Set Office Update Notifiations behavior ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate' -Name 'hideupdatenotifications' -Value '1' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate' -Name 'hideenabledisableupdates' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+
+# Onedrive configuration
+
+Write-Host '*** AVD Customisation *** CONFIG ONEDRIVE *** Configure OneDrive to start at sign in for all users. ***'
+New-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'OneDrive' -Value 'C:\Program Files (x86)\Microsoft OneDrive\OneDrive.exe /background' -Force | Out-Null
+Write-Host '*** AVD Customisation *** CONFIG ONEDRIVE *** Silently configure user account ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\OneDrive' -Name 'SilentAccountConfig' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+
+#Write-Host '*** AVD Customisation *** INSTALL *** Install Chocolatey. ***'
+#Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
+#Upgrade all Application Packages Installed
+#choco upgrade all /y
+
+Write-Host '*** AVD Customisation ********************* END *************************'
+
+Write-Host '*** AVD Customisation *** INSTALL *** AVD Optimisation Script ***'
+# Note: This will download and extract the AVD optimization script.
+if (!(test-path -path c:\AVD)) {new-item -path c:\AVD -itemtype directory}
+Invoke-WebRequest -Uri 'https://github.com/The-Virtual-Desktop-Team/Virtual-Desktop-Optimization-Tool/archive/refs/heads/main.zip' -OutFile 'c:\AVD\master.zip' -ErrorAction Stop
+Expand-Archive -Path 'C:\AVD\master.zip' -DestinationPath 'C:\AVD\'  -Force
+#create AVD optimisation Script
+
+Start-Sleep -Seconds 10
+
+#Overwriting the AppxPackage.json to configure which UWP are removed during optimisation
+(Get-Content -path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Unchanged' , 'Disabled' | Set-Content -path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json;
+
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.MSPaint', 'Microsoft.MSPaint_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.MicrosoftStickyNotes', 'Microsoft.MicrosoftStickyNotes_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.Windows.Photos', 'Microsoft.Windows.Photos_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.WindowsAlarms', 'Microsoft.WindowsAlarms_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.WindowsCalculator', 'Microsoft.WindowsCalculator_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.WindowsCamera', 'Microsoft.WindowsCamera_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.WindowsSoundRecorder', 'Microsoft.WindowsSoundRecorder_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.ScreenSketch', 'Microsoft.ScreenSketch_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json -Raw) -replace 'Microsoft.WindowsNotepad', 'Microsoft.WindowsNotepad_DoNotRemove') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\AppxPackages.json
+
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\Services.json -Raw) -replace 'UsoSvc', 'UsoSvc_DoNotStop') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\Services.json
+((Get-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\Services.json -Raw) -replace 'DiagTrack', 'DiagTrack_DoNotStop') | Set-Content -Path C:\AVD\Virtual-Desktop-Optimization-Tool-main\2009\ConfigurationFiles\Services.json
+
+#Create Optimisation script
+if (!(test-path -path c:\AVD\optimise.ps1)) {new-item -path c:\AVD -name Optimise.ps1 -ItemType File -Value '
+Get-ChildItem c:\AVD\Virtual-Desktop-Optimization-Tool-main\*.* | Unblock-File
+Set-Location c:\AVD\Virtual-Desktop-Optimization-Tool-main
+if ((gwmi win32_computersystem).partofdomain -eq $false) {exit 0}
+if (Test-Path "C:\AVD\DONOTDELETE.log") {exit 0}
+Set-ExecutionPolicy -ExecutionPolicy ByPass -Force
+change logon /drainuntilrestart
+.\Windows_VDOT.ps1 -Optimizations All -AcceptEULA -Verbose *> "C:\AVD\DONOTDELETE.log" -Restart 
+'}
+
+#Creating Scheduled Task for AVD Optimisation 
+if(Get-ScheduledTask 'AVD Customisation' -ErrorAction Ignore) {Write-Output "Scheduled Task already created"} 
+else 
+{
+# Create a new task action
+$taskAction = New-ScheduledTaskAction `
+    -Execute 'C:\WINDOWS\system32\WindowsPowerShell\v1.0\powershell.exe' `
+    -Argument '-ExecutionPolicy Bypass -command "& c:\AVD\Optimise.ps1"'
+$taskAction
+
+# Create a new trigger (Startup)
+$taskTrigger = New-ScheduledTaskTrigger -AtStartup
+
+# Register the new PowerShell scheduled task
+
+# The name of your scheduled task.
+$taskName = "AVD Customisation"
+
+# Describe the scheduled task.
+$description = "Customise and Optimise a AVD Session Host"
+
+# Register the scheduled task
+Register-ScheduledTask `
+    -TaskName $taskName `
+    -Action $taskAction `
+    -Trigger $taskTrigger `
+    -Description $description
+
+# Set the task principal's user ID and run level.
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+# Set the task compatibility value to Windows 10.
+$taskSettings = New-ScheduledTaskSettingsSet -Compatibility Win8
+# Update the task principal settings
+Set-ScheduledTask -TaskName 'AVD Customisation' -Principal $taskPrincipal -Settings $taskSettings
+}
+if (!(test-path -path c:\AVD\FSLogix)) {new-item -path c:\AVD\FSLogix -itemtype directory}
+if (!(test-path -path c:\AVD\FSLogix\Redirections.xml)) {new-item -path c:\AVD\FSLogix -name Redirections.xml -ItemType File -Value '
+<?xml version="1.0" encoding="UTF-8"?>
+<FrxProfileFolderRedirection ExcludeCommonFolders="0">
+<Excludes>
+<Exclude Copy="0">Downloads</Exclude>
+<Exclude Copy="0">AppData\Roaming\Microsoft\Teams\meeting-addin\Cache</Exclude>
+<Exclude Copy="0">AppData\Roaming\Microsoft\Teams\media-stack</Exclude>
+</Excludes>
+<Includes>
+<Include Copy="3">AppData\LocalLow\Sun\Java\Deployment\security</Include>
+</Includes>
+</FrxProfileFolderRedirection>'
+}
+
+#Set Windows Defender Exclusions for FSLogix
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxdrv.sys"
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxdrvvt.sys"
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxccd.sys"
+Add-MpPreference -ExclusionPath "%TEMP%\*.VHD"
+Add-MpPreference -ExclusionPath "%TEMP%\*.VHDX"
+Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHD"
+Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath4\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath4\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath4\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath5\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath5\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath5\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath6\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath6\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath6\*.VHDX"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccd.exe"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccds.exe"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxsvc.exe"
+
+#Set Windows Defender Exclusions for App Attach
+
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.VHD"
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.VHDX"
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.CIM"
+
+Write-Host '*** AVD Customisation *** CONFIG *** Deleting temp folder. ***'
+if (test-path -path c:\temp) {
+Get-ChildItem -Path 'C:\temp' -Recurse | Remove-Item -Recurse -Force
+Remove-Item -Path 'C:\temp' -Force | Out-Null
+}
+Write-Host '*** AVD Customisation *** CONFIG *** Deleting Language folder. ***'
+if (test-path -path c:\AVD\Language) {
+Get-ChildItem -Path 'C:\AVD\Language' -Recurse | Remove-Item -Recurse -Force
+Remove-Item -Path 'C:\AVD\Language' -Force | Out-Null
+}
+
+
+
+
+#Remove-appxpackage -allusers -package "Microsoft.LanguageExperiencePacken-GB_22621.37.194.0_neutral__8wekyb3d8bbwe"
+
+#remove-appxpackage -allusers -package "0BF99681-825C-4B2A-A14F-2AC01DB9B70E_1.0.0.0_x64__n6n75k5gy501g"
