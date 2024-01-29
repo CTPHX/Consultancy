@@ -1,0 +1,125 @@
+########################################################
+#Set variables
+$FSLogixProfilePath1 = "\\stxxxavdfiles01.file.core.windows.net\profiles01"
+#$FSLogixProfilePath2 = "\\stxxxavdfiles01.file.core.windows.net\fslogixprofiles02"
+#$FSLogixProfilePath3 = "\\stxxxavdfiles01.file.core.windows.net\fsprofiles03"
+#$AppAttachPath = "\\stxxxavdfiles01.file.core.windows.net\appattach"
+
+$AADTenantID = "xxxx.xxxx.xxxx.xxxx"
+########################################################
+
+
+
+
+
+Write-Host '*** AVD Customisation *** Stop the custimization when Error occurs ***'
+#$ErroractionPreference='Stop'
+$ErroractionPreference='Continue'
+
+
+#####################################################################################
+#This section configures Microsoft best practice settings for AVD#
+#####################################################################################
+
+Write-Host '*** AVD Customisation *** START OS CONFIG *** Update the recommended OS configuration ***'
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Prevent Microsoft Edge first run page***'
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\MicrosoftEdge\Main" /v PreventFirstRunPage /t REG_DWORD /d 1 /f
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Specify Start layout for Windows 10 PCs (optional) ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' -Name 'SpecialRoamingOverrideAllowed' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Set up time zone redirection ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'fEnableTimeZoneRedirection' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** Disable Storage Sense ***'
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" /v 01 /t REG_DWORD /d 0 /f
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\StorageSense' -Name 'AllowStorageSenseGlobal' -Value '0' -PropertyType DWORD -Force | Out-Null
+
+# Note: Remove if not required!
+Write-Host '*** AVD Customisation *** SET OS REGKEY *** For feedback hub collection of telemetry data on Windows 10 Enterprise multi-session ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name 'AllowTelemetry' -Value '3' -PropertyType DWORD -Force | Out-Null
+
+# Note: Remove if not required!
+Write-Host '*** AVD Customisation *** SET OS REGKEYS *** Fix 5k resolution support ***'
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxMonitors' -Value '4' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxXResolution' -Value '5120' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'MaxYResolution' -Value '2880' -PropertyType DWORD -Force | Out-Null
+New-Item -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxMonitors' -Value '4' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxXResolution' -Value '5120' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\rdp-sxs' -Name 'MaxYResolution' -Value '2880' -PropertyType DWORD -Force | Out-Null
+
+
+Write-Host '*** AVD Customisation *** CONFIG OFFICE Regkeys *** Set Office Update Notifiations behavior ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate' -Name 'hideupdatenotifications' -Value '1' -PropertyType DWORD -Force | Out-Null
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate' -Name 'hideenabledisableupdates' -Value '1' -PropertyType DWORD -Force | Out-Null
+
+
+# Onedrive configuration
+
+Write-Host '*** AVD Customisation *** CONFIG ONEDRIVE *** Configure OneDrive to start at sign in for all users. ***'
+New-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'OneDrive' -Value 'C:\Program Files (x86)\Microsoft OneDrive\OneDrive.exe /background' -Force | Out-Null
+Write-Host '*** AVD Customisation *** CONFIG ONEDRIVE *** Silently configure user account ***'
+New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\OneDrive' -Name 'SilentAccountConfig' -Value '1' -PropertyType DWORD -Force | Out-Null
+#Write-Host '*** AVD Customisation *** CONFIG ONEDRIVE *** Redirect and move Windows known folders to OneDrive by running the following command. ***'
+#New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\OneDrive' -Name 'KFMSilentOptIn' -Value $AADTenantID -Force | Out-Null
+
+#Write-Host '*** AVD Customisation *** INSTALL *** Install Chocolatey. ***'
+#Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+
+#Upgrade all Application Packages Installed
+#choco upgrade all /y
+
+Write-Host '*** AVD Customisation ********************* END *************************'
+
+
+if (!(test-path -path c:\AVD\FSLogix)) {new-item -path c:\AVD\FSLogix -itemtype directory}
+if (!(test-path -path c:\AVD\FSLogix\Redirections.xml)) {new-item -path c:\AVD\FSLogix -name Redirections.xml -ItemType File -Value '
+<?xml version="1.0" encoding="UTF-8"?>
+<FrxProfileFolderRedirection ExcludeCommonFolders="0">
+<Excludes>
+<Exclude Copy="0">Downloads</Exclude>
+<Exclude Copy="0">AppData\Roaming\Microsoft\Teams\meeting-addin\Cache</Exclude>
+<Exclude Copy="0">AppData\Roaming\Microsoft\Teams\media-stack</Exclude>
+</Excludes>
+<Includes>
+<Include Copy="3">AppData\LocalLow\Sun\Java\Deployment\security</Include>
+</Includes>
+</FrxProfileFolderRedirection>'
+}
+
+#Set Windows Defender Exclusions for FSLogix
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxdrv.sys"
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxdrvvt.sys"
+Add-MpPreference -ExclusionPath "%ProgramFiles%\FSLogix\Apps\frxccd.sys"
+Add-MpPreference -ExclusionPath "%TEMP%\*.VHD"
+Add-MpPreference -ExclusionPath "%TEMP%\*.VHDX"
+Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHD"
+Add-MpPreference -ExclusionPath "%Windir%\TEMP\*.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath1\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath2\**.VHDX"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHD"
+Add-MpPreference -ExclusionPath "$FSLogixProfilePath3\**.VHDX"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccd.exe"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxccds.exe"
+Add-MpPreference -ExclusionProcess "%ProgramFiles%\FSLogix\Apps\frxsvc.exe"
+
+#Set Windows Defender Exclusions for App Attach
+
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.VHD"
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.VHDX"
+Add-MpPreference -ExclusionPath "$AppAttachPath\**.CIM"
+
+Write-Host '*** AVD Customisation *** CONFIG *** Deleting temp folder. ***'
+if (test-path -path c:\temp) {
+Get-ChildItem -Path 'C:\temp' -Recurse | Remove-Item -Recurse -Force
+Remove-Item -Path 'C:\temp' -Force | Out-Null
+}
+Write-Host '*** AVD Customisation *** CONFIG *** Deleting Language folder. ***'
+if (test-path -path c:\AVD\Language) {
+Get-ChildItem -Path 'C:\AVD\Language' -Recurse | Remove-Item -Recurse -Force
+Remove-Item -Path 'C:\AVD\Language' -Force | Out-Null
+}
