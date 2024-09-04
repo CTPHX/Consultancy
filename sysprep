@@ -1,0 +1,3 @@
+$sysprep = 'C:\Windows\System32\Sysprep\Sysprep.exe'
+$arg = '/generalize /oobe /shutdown /mode:vm'
+Start-Process -FilePath $sysprep -ArgumentList $arg
