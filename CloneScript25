@@ -16,7 +16,7 @@ $subscriptionId = ''
 $ImagesRG = ""
 
 #Resource Group for virtual Machine Networking
-$NetworkRG = "rg-ukw-avd-network"
+$NetworkRG = ""
 
 #Provide the size of the virtual machine
 $virtualMachineSize = 'Standard_D2ads_v5'
@@ -85,6 +85,8 @@ $vnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $Netwo
 
 #Create temporary resource group
 
+Write-Host "Creating Temp Resource Group" -ForegroundColor Red
+
 New-AzResourceGroup -Name $TempRG -Location $Location
 
 #Clone Gold Image to a new VM (e.g. Gold-VM-V4)
@@ -136,14 +138,14 @@ $VirtualMachine = Set-AzVMOSDisk -VM $VirtualMachine -ManagedDiskId $disk.Id -Cr
 $nic = New-AzNetworkInterface -Name ($VirtualMachineName.ToLower()+'_nic') -ResourceGroupName $TempRG -Location $snapshot.Location -SubnetId $vnet.Id #-PublicIpAddressId $publicIp.Id
 
 $VirtualMachine = Add-AzVMNetworkInterface -VM $VirtualMachine -Id $nic.Id
-
+Write-host "Creating Virtual Machine" -ForegroundColor Red
 #Create the virtual machine with Managed Disk
 New-AzVM -VM $VirtualMachine -ResourceGroupName $TempRG -Location $snapshot.Location -DisableBginfoExtension
-
+Write-host "Created Virtual Machine - Please Wait" -ForegroundColor Red
 Start-Sleep -Seconds 30
 
 ####################################################################################################################
-Write-Host "Starting Sysprep"
+Write-Host "Starting Sysprep" -ForegroundColor Red
 #Sysprep the cloned gold image and generalize ready for deployment to the Azure Compute Gallery
 
 $content = 
@@ -160,6 +162,7 @@ Set-Content -Path .\sysprep.ps1 -Value $content
 $vm = Get-AzVM -Name $virtualMachineName
 $vm | Invoke-AzVMRunCommand -CommandId "RunPowerShellScript" -ScriptPath .\sysprep.ps1 -Parameter @{sysprep = "C:\Windows\System32\Sysprep\Sysprep.exe";arg = "/generalize /oobe /mode:vm /quit"}
 
+
 Stop-AzVM -Name $virtualMachineName -ResourceGroupName $TempRG -force
 
 $vm | Set-AzVm -Generalized
@@ -167,7 +170,7 @@ $vm | Set-AzVm -Generalized
 
 
 #####################################################################################################################
-Write-Host "Creating managed image"
+Write-Host "Creating managed image" -ForegroundColor Red
 
 # Get the source VM
 $sourceImageVM = Get-AzVM -ResourceGroupName $TempRG -Name $virtualMachineName
@@ -188,12 +191,12 @@ $managedImageName = "$masterImage-ManagedImage-V$versionNumber"
 # Create the Managed Image in the specified resource group
 $managedImage = New-AzImage -ResourceGroupName $TempRG -ImageName $managedImageName -Image $imageConfig
 
-Write-Host "Managed Image created successfully"
+Write-Host "Managed Image created successfully" -ForegroundColor Red
 
 
 
 #####################################################################################################################
-write-host "Creating Image version in Azure Compute Gallery"
+write-host "Creating Image version in Azure Compute Gallery" -ForegroundColor Red
 #Create an Azure Cumpute Gallery image from to cloned gold image
 
 $galleries = Get-AzResource -ResourceType Microsoft.Compute/galleries -ResourceGroupName $ImagesRG
@@ -207,10 +210,10 @@ $targetRegions = @($region_ukwest, $region_uksouth)
 
 New-AzGalleryImageVersion -ResourceGroupName $galleriesRG -GalleryName $galleryName -GalleryImageDefinitionName $galleryImageDefinitionName -Name $galleryImageVersionName -Location $location -SourceImageId $sourceImageId -TargetRegion $targetRegions
 
-write-host "Completed Creating Image version in Azure Compute Gallery"
+write-host "Completed Creating Image version in Azure Compute Gallery" -ForegroundColor Red
 #######################################################################################################################
 
 #Cleanup
-write-host "Removing deployment objects"
+write-host "Removing deployment objects" -ForegroundColor Red
 Remove-AzResourceGroup -Name $TempRG -Force
-write-host "CompletedRemoving deployment objects"
+write-host "Completed Removing deployment objects" -ForegroundColor Red
