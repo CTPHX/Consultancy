@@ -43,8 +43,6 @@ $ResourceGroupTags = @{
 ####################################################################################################################
 
 #Generate version number from Azure Compure Gallery
-
-#Generate version number from Azure Compure Gallery
  
 $ErrorActionPreference = "Stop"
  
