@@ -27,6 +27,13 @@ $virtualNetworkName = 'vnet-ukw-avd-spoke'
 #Provide temporary resource group for disposable resources
 $TempRG = "avd-gold" + (get-date -Format "-dd-MM-yyyy-HH-mm")
 
+$ResourceGroupTags = @{
+"Environment" = "AVD"; 
+"Application" = "Core Infrastructure";
+"Business Owner" = "ITS";
+"Cost Centre" = "ITS"
+}
+
 ####################################################################################################################
 
 #authenticate to azure
@@ -87,7 +94,7 @@ $vnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $Netwo
 
 Write-Host "Creating Temp Resource Group" -ForegroundColor Red
 
-New-AzResourceGroup -Name $TempRG -Location $Location
+New-AzResourceGroup -Name $TempRG -Location $Location -Tag $ResourceGroupTags
 
 #Clone Gold Image to a new VM (e.g. Gold-VM-V4)
 
@@ -189,7 +196,7 @@ $imageConfig = Set-AzImageOsDisk -Image $imageConfig -ManagedDiskId $osDiskId -O
 $managedImageName = "$masterImage-ManagedImage-V$versionNumber"
 
 # Create the Managed Image in the specified resource group
-$managedImage = New-AzImage -ResourceGroupName $TempRG -ImageName $managedImageName -Image $imageConfig
+$managedImage = New-AzImage -ResourceGroupName $ImagesRG -ImageName $managedImageName -Image $imageConfig
 
 Write-Host "Managed Image created successfully" -ForegroundColor Red
 
