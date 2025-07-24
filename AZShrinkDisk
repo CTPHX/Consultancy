@@ -1,5 +1,5 @@
 # Variables
-$DiskID = ""# eg. "/subscriptions/203bdbf0-69bd-1a12-a894-a826cf0a34c8/resourcegroups/rg-server1-prod-1/providers/Microsoft.Compute/disks/Server1-Server1"
+$DiskID = ""# eg. "/subscriptions/xxxxxxxxxx/resourcegroups/rg-server1-prod-1/providers/Microsoft.Compute/disks/Server1-Server1"
 $VMName = "AZDC01"
 $DiskSizeGB = 32
 $AzSubscription = "AidWright - Sandbox"
