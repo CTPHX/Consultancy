@@ -5,7 +5,7 @@
 #$FSLogixProfilePath3 = \\sph.file.core.windows.net\fsprofiles
 #$AppAttachPath = \\sph.file.core.windows.net\appattach
 
-$AADTenantID  = "b9c0cf9b-95a9-4ed9-8c9f-08b60a31829d"
+$AADTenantID  = "xxxx-xxxx-xxxx-xxxx"
 ########################################################
 
 ########################################################
