@@ -1,0 +1,4 @@
+Get-GPInheritance -Target "OU=YourOU,DC=domain,DC=com" |
+Select-Object -ExpandProperty GpoLinks |
+Select-Object DisplayName |
+Export-Csv "C:\Temp\OU-GPOs.csv" -NoTypeInformation
