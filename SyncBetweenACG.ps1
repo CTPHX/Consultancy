@@ -1,5 +1,11 @@
 #To be uploaded to an automation account
 
+#Create a Custom Role with the below actions for zero trust access
+#"Microsoft.Resources/subscriptions/resourceGroups/read
+#Microsoft.Compute/galleries/read
+#Microsoft.Compute/galleries/images/read
+#Microsoft.Compute/galleries/images/versions/read
+#Microsoft.Compute/galleries/images/versions/write"
 
 # Define Variables
 $subscriptionId = ""
