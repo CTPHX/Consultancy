@@ -56,12 +56,18 @@ if ($existingTargetImage) {
 
 Write-Host "Replicating image version $sourceImageVersion to $targetGalleryName..."
 
+$regions = @(
+    @{Name="uksouth"; ReplicaCount=1},
+    @{Name="ukwest";  ReplicaCount=1}
+)
+
 # Create the Image Version in the Target ACG
 New-AzGalleryImageVersion -ResourceGroupName $targetResourceGroup `
                           -GalleryName $targetGalleryName `
                           -GalleryImageDefinitionName $imageDefinitionName `
                           -Name $sourceImageVersion `
                           -Location $locationTarget `
-                          -SourceImageId $sourceImageId
+                          -SourceImageId $sourceImageId `
+                          -TargetRegion $regions
 
 Write-Host "Image version $sourceImageVersion successfully replicated to $targetGalleryName in $locationTarget!"
