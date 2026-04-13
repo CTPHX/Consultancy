@@ -1,6 +1,6 @@
 #To be uploaded to an automation account
 
-#Create a Custom Role with the below actions for zero trust access
+#Create a Custom Role with the below actions for zero trust access (To be used by the managed identity in AA)
 #"Microsoft.Resources/subscriptions/resourceGroups/read
 #Microsoft.Compute/galleries/read
 #Microsoft.Compute/galleries/images/read
