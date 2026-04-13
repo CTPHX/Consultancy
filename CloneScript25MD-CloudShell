@@ -1,0 +1,232 @@
+# Phoenix Software
+################################################################################################################
+# Variables
+################################################################################################################
+
+# Location
+$Location = 'UK South'
+
+# Provide the Tenant Id
+$tenantId = ''
+
+# Provide the subscription Id
+$subscriptionId = ''
+
+# Resource Group for Gold Image
+$ImagesRG = ''
+
+# Resource Group for virtual Machine Networking
+$NetworkRG = ''
+
+# Provide the size of the virtual machine
+$virtualMachineSize = 'Standard_D2ads_v5'
+
+# Provide the name of an existing virtual network where virtual machine will be created
+$virtualNetworkName = ''
+
+# Provide the subnet name to use
+$subnetName = ''
+
+# Provide the Gallery Image Definition name
+$galleryImageDefinitionName = ''
+
+# Provide the existing Gold VM name
+$goldVmName = ''
+
+# Provide temporary resource group for disposable resources
+$TempRG = "avd-gold" + (Get-Date -Format "-dd-MM-yyyy-HH-mm")
+
+$ResourceGroupTags = @{
+    "Environment"    = "AVD"
+    "Application"    = "Core Infrastructure"
+    "Business Owner" = "ITS"
+    "Cost Centre"    = "ITS"
+}
+
+################################################################################################################
+# Authentication / Context
+################################################################################################################
+
+$ErrorActionPreference = 'Stop'
+
+Write-Host "Authenticating to Azure..." -ForegroundColor Cyan
+Connect-AzAccount -Tenant $tenantId -Subscription $subscriptionId | Out-Null
+Set-AzContext -SubscriptionId $subscriptionId | Out-Null
+
+################################################################################################################
+# Validate inputs
+################################################################################################################
+
+if ([string]::IsNullOrWhiteSpace($ImagesRG)) { throw "ImagesRG is required." }
+if ([string]::IsNullOrWhiteSpace($NetworkRG)) { throw "NetworkRG is required." }
+if ([string]::IsNullOrWhiteSpace($subnetName)) { throw "subnetName is required." }
+if ([string]::IsNullOrWhiteSpace($galleryImageDefinitionName)) { throw "galleryImageDefinitionName is required." }
+if ([string]::IsNullOrWhiteSpace($goldVmName)) { throw "goldVmName is required." }
+
+################################################################################################################
+# Generate version number from Azure Compute Gallery
+################################################################################################################
+
+Write-Host "Determining next image version..." -ForegroundColor Cyan
+
+$imageVersions = Get-AzResource -ResourceType "Microsoft.Compute/galleries/images/versions" |
+    Where-Object { $_.Name -like "*$galleryImageDefinitionName*" } |
+    Sort-Object Name
+
+if (-not $imageVersions) {
+    $versionNumber = "0.0.1"
+}
+else {
+    $latestImageVersion = $imageVersions[-1]
+    $CurrentVersionNumber = $latestImageVersion.Name.Split("/")
+    $versionNumberArray = $CurrentVersionNumber[2]
+    $versionObject = [version]$versionNumberArray
+
+    $newBuild = $versionObject.Build + 1
+    $newMinor = $versionObject.Minor
+    $newMajor = $versionObject.Major
+
+    if ($newBuild -ge 10) {
+        $newMajor = $versionObject.Major + 1
+        $newMinor = $versionObject.Minor
+        $newBuild = 0
+    }
+
+    $versionNumber = "$newMajor.$newMinor.$newBuild"
+}
+
+Write-Host "Next version number: $versionNumber" -ForegroundColor Green
+
+################################################################################################################
+# Get Gold VM
+################################################################################################################
+
+Write-Host "Retrieving gold image VM..." -ForegroundColor Cyan
+$gold = Get-AzVM -ResourceGroupName $ImagesRG -Name $goldVmName
+
+if (-not $gold) {
+    throw "Gold VM '$goldVmName' was not found in resource group '$ImagesRG'."
+}
+
+################################################################################################################
+# Get Network Subnet
+################################################################################################################
+
+Write-Host "Retrieving subnet..." -ForegroundColor Cyan
+$subnet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $NetworkRG |
+    Get-AzVirtualNetworkSubnetConfig |
+    Where-Object { $_.Name -eq $subnetName }
+
+if (-not $subnet) {
+    throw "Subnet '$subnetName' was not found in VNet '$virtualNetworkName'."
+}
+
+################################################################################################################
+# Create temporary resource group
+################################################################################################################
+
+Write-Host "Creating temp resource group: $TempRG" -ForegroundColor Yellow
+New-AzResourceGroup -Name $TempRG -Location $Location -Tag $ResourceGroupTags | Out-Null
+
+################################################################################################################
+# Clone Gold Image to a new VM
+################################################################################################################
+
+$masterImage = $gold.Name
+$VMName = $masterImage
+
+$snapshotName = "$masterImage-SNAPSHOT-V$versionNumber"
+$osDiskName = "$masterImage-DISK-V$versionNumber"
+$virtualMachineName = "$masterImage-VM-V$versionNumber"
+
+Write-Host "Getting OS disk from source VM..." -ForegroundColor Cyan
+$VMOSDisk = (Get-AzVM -ResourceGroupName $ImagesRG -Name $VMName).StorageProfile.OsDisk.Name
+$Disk = Get-AzDisk -ResourceGroupName $ImagesRG -DiskName $VMOSDisk
+
+Write-Host "Creating snapshot: $snapshotName" -ForegroundColor Cyan
+$SnapshotConfig = New-AzSnapshotConfig -SourceUri $Disk.Id -CreateOption Copy -Location $Location
+$Snapshot = New-AzSnapshot -Snapshot $SnapshotConfig -SnapshotName $snapshotName -ResourceGroupName $TempRG
+
+Write-Host "Creating managed disk: $osDiskName" -ForegroundColor Cyan
+$snapshot = Get-AzSnapshot -ResourceGroupName $TempRG -SnapshotName $snapshotName
+$diskConfig = New-AzDiskConfig -Location $snapshot.Location -SourceResourceId $snapshot.Id -CreateOption Copy
+$disk = New-AzDisk -Disk $diskConfig -ResourceGroupName $TempRG -DiskName $osDiskName
+
+Write-Host "Building VM configuration..." -ForegroundColor Cyan
+$VirtualMachine = New-AzVMConfig -VMName $virtualMachineName -VMSize $virtualMachineSize
+$VirtualMachine = Set-AzVMBootDiagnostic -VM $VirtualMachine -Disable
+$VirtualMachine = Set-AzVMOSDisk -VM $VirtualMachine -ManagedDiskId $disk.Id -CreateOption Attach -Windows
+
+Write-Host "Creating NIC..." -ForegroundColor Cyan
+$nic = New-AzNetworkInterface `
+    -Name ($virtualMachineName.ToLower() + '_nic') `
+    -ResourceGroupName $TempRG `
+    -Location $snapshot.Location `
+    -SubnetId $subnet.Id
+
+$VirtualMachine = Add-AzVMNetworkInterface -VM $VirtualMachine -Id $nic.Id
+
+Write-Host "Creating virtual machine: $virtualMachineName" -ForegroundColor Yellow
+New-AzVM `
+    -VM $VirtualMachine `
+    -ResourceGroupName $TempRG `
+    -Location $snapshot.Location `
+    -DisableBginfoExtension | Out-Null
+
+Write-Host "VM created. Waiting 30 seconds before sysprep..." -ForegroundColor Green
+Start-Sleep -Seconds 30
+
+################################################################################################################
+# Sysprep and Generalize
+################################################################################################################
+
+Write-Host "Starting sysprep..." -ForegroundColor Yellow
+
+$sysprepScript = @'
+Start-Process -FilePath "C:\Windows\System32\Sysprep\Sysprep.exe" -ArgumentList "/generalize /oobe /mode:vm /quit" -Wait
+'@
+
+Invoke-AzVMRunCommand `
+    -ResourceGroupName $TempRG `
+    -VMName $virtualMachineName `
+    -CommandId "RunPowerShellScript" `
+    -ScriptString $sysprepScript | Out-Null
+
+Write-Host "Sysprep finished. Waiting 30 seconds..." -ForegroundColor Cyan
+Start-Sleep -Seconds 30
+
+Write-Host "Stopping VM..." -ForegroundColor Cyan
+Stop-AzVM -Name $virtualMachineName -ResourceGroupName $TempRG -Force | Out-Null
+
+Write-Host "Marking VM as generalized..." -ForegroundColor Cyan
+$vm = Get-AzVM -ResourceGroupName $TempRG -Name $virtualMachineName
+Set-AzVM -ResourceGroupName $TempRG -VM $vm -Generalized | Out-Null
+
+################################################################################################################
+# Create Managed Image
+################################################################################################################
+
+Write-Host "Creating managed image..." -ForegroundColor Yellow
+
+$sourceImageVM = Get-AzVM -ResourceGroupName $TempRG -Name $virtualMachineName
+$imageConfig = New-AzImageConfig -Location $sourceImageVM.Location -HyperVGeneration V2
+
+$osDiskId = $sourceImageVM.StorageProfile.OsDisk.ManagedDisk.Id
+$imageConfig = Set-AzImageOsDisk -Image $imageConfig -ManagedDiskId $osDiskId -OsType Windows
+
+$managedImageName = "$masterImage-ManagedImage-V$versionNumber"
+
+$managedImage = New-AzImage `
+    -ResourceGroupName $ImagesRG `
+    -ImageName $managedImageName `
+    -Image $imageConfig
+
+Write-Host "Managed Image created successfully: $managedImageName" -ForegroundColor Green
+
+################################################################################################################
+# Cleanup
+################################################################################################################
+
+Write-Host "Removing temporary resource group: $TempRG" -ForegroundColor Yellow
+Remove-AzResourceGroup -Name $TempRG -Force | Out-Null
+Write-Host "Completed cleanup." -ForegroundColor Green
