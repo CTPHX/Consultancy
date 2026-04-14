@@ -1,0 +1,328 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$GoldVmName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$GalleryName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$GalleryImageDefinitionName
+)
+
+################################################################################################################
+# MODULES
+################################################################################################################
+
+Import-Module Az.Accounts
+Import-Module Az.Compute
+Import-Module Az.Network
+Import-Module Az.Resources
+
+################################################################################################################
+# HARD CODED CONFIG
+################################################################################################################
+
+$SubscriptionId = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+$Location = "UK South"
+
+$ImagesResourceGroupName  = "rg-avd-images"
+$NetworkResourceGroupName = "rg-avd-network"
+$GalleryResourceGroupName = "rg-avd-images"
+
+$VirtualNetworkName = "vnet-ukw-avd-spoke"
+$SubnetName         = "default"
+
+$VirtualMachineSize = "Standard_D2ads_v5"
+$TempResourceGroupPrefix = "avd-gold"
+
+$ReplicaCount = 1
+$TargetRegions = @($Location)
+$ExcludeFromLatest = $false
+
+################################################################################################################
+# FUNCTIONS
+################################################################################################################
+
+function Write-Log {
+    param([string]$Message)
+    Write-Output ("[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message)
+}
+
+function Get-NextGalleryVersion {
+    param(
+        [string]$ResourceGroupName,
+        [string]$GalleryName,
+        [string]$ImageDefinitionName
+    )
+
+    $versions = Get-AzGalleryImageVersion `
+        -ResourceGroupName $ResourceGroupName `
+        -GalleryName $GalleryName `
+        -GalleryImageDefinitionName $ImageDefinitionName `
+        -ErrorAction SilentlyContinue
+
+    if (-not $versions) {
+        return "0.0.1"
+    }
+
+    $latest = $versions |
+        Sort-Object { [version]$_.Name } |
+        Select-Object -Last 1
+
+    $v = [version]$latest.Name
+    $build = $v.Build + 1
+    $minor = $v.Minor
+    $major = $v.Major
+
+    if ($build -ge 10) {
+        $major++
+        $build = 0
+    }
+
+    return "$major.$minor.$build"
+}
+
+function Wait-ForVmState {
+    param(
+        [string]$ResourceGroupName,
+        [string]$VmName,
+        [string[]]$States,
+        [int]$MaxChecks = 45,
+        [int]$SleepSeconds = 20
+    )
+
+    for ($i = 0; $i -lt $MaxChecks; $i++) {
+        $status = Get-AzVM -ResourceGroupName $ResourceGroupName -Name $VmName -Status
+        $power = ($status.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1).DisplayStatus
+
+        Write-Log "VM state for '$VmName': $power"
+
+        if ($States -contains $power) {
+            return $true
+        }
+
+        Start-Sleep -Seconds $SleepSeconds
+    }
+
+    return $false
+}
+
+################################################################################################################
+# AUTH
+################################################################################################################
+
+$ErrorActionPreference = "Stop"
+
+Write-Log "Authenticating with managed identity..."
+Disable-AzContextAutosave -Scope Process | Out-Null
+Connect-AzAccount -Identity | Out-Null
+Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+
+################################################################################################################
+# VALIDATION
+################################################################################################################
+
+Write-Log "Gold VM: $GoldVmName"
+Write-Log "Gallery: $GalleryName"
+Write-Log "Image Definition: $GalleryImageDefinitionName"
+
+Write-Log "Validating gallery..."
+Get-AzGallery `
+    -ResourceGroupName $GalleryResourceGroupName `
+    -Name $GalleryName | Out-Null
+
+Write-Log "Validating gallery image definition..."
+Get-AzGalleryImageDefinition `
+    -ResourceGroupName $GalleryResourceGroupName `
+    -GalleryName $GalleryName `
+    -Name $GalleryImageDefinitionName | Out-Null
+
+################################################################################################################
+# VERSION
+################################################################################################################
+
+$versionNumber = Get-NextGalleryVersion `
+    -ResourceGroupName $GalleryResourceGroupName `
+    -GalleryName $GalleryName `
+    -ImageDefinitionName $GalleryImageDefinitionName
+
+Write-Log "New gallery version will be: $versionNumber"
+
+################################################################################################################
+# TEMP RESOURCE GROUP
+################################################################################################################
+
+$TempRG = "$TempResourceGroupPrefix-$(Get-Date -Format 'dd-MM-yyyy-HH-mm')"
+
+Write-Log "Creating temp RG: $TempRG"
+New-AzResourceGroup -Name $TempRG -Location $Location | Out-Null
+
+################################################################################################################
+# SOURCE VM AND DISK
+################################################################################################################
+
+Write-Log "Getting source gold VM..."
+$goldVm = Get-AzVM -ResourceGroupName $ImagesResourceGroupName -Name $GoldVmName
+
+$sourceOsDiskName = $goldVm.StorageProfile.OsDisk.Name
+Write-Log "Source OS disk: $sourceOsDiskName"
+
+$sourceDisk = Get-AzDisk -ResourceGroupName $ImagesResourceGroupName -DiskName $sourceOsDiskName
+
+$snapshotName = "$GoldVmName-snap-$versionNumber"
+$newDiskName  = "$GoldVmName-disk-$versionNumber"
+$tempVmName   = "$GoldVmName-vm-$versionNumber"
+
+################################################################################################################
+# SNAPSHOT AND CLONED DISK
+################################################################################################################
+
+Write-Log "Creating snapshot '$snapshotName'..."
+$snapshotConfig = New-AzSnapshotConfig `
+    -SourceUri $sourceDisk.Id `
+    -CreateOption Copy `
+    -Location $Location
+
+$snapshot = New-AzSnapshot `
+    -Snapshot $snapshotConfig `
+    -SnapshotName $snapshotName `
+    -ResourceGroupName $TempRG
+
+Write-Log "Creating cloned disk '$newDiskName'..."
+$diskConfig = New-AzDiskConfig `
+    -Location $Location `
+    -SourceResourceId $snapshot.Id `
+    -CreateOption Copy
+
+$newDisk = New-AzDisk `
+    -Disk $diskConfig `
+    -ResourceGroupName $TempRG `
+    -DiskName $newDiskName
+
+################################################################################################################
+# NETWORK
+################################################################################################################
+
+Write-Log "Getting subnet '$SubnetName' from VNet '$VirtualNetworkName'..."
+$subnet = Get-AzVirtualNetwork `
+    -Name $VirtualNetworkName `
+    -ResourceGroupName $NetworkResourceGroupName |
+    Get-AzVirtualNetworkSubnetConfig |
+    Where-Object { $_.Name -eq $SubnetName }
+
+if (-not $subnet) {
+    throw "Subnet '$SubnetName' was not found in VNet '$VirtualNetworkName'."
+}
+
+################################################################################################################
+# CREATE TEMP VM
+################################################################################################################
+
+Write-Log "Creating temp VM '$tempVmName'..."
+
+$vmConfig = New-AzVMConfig -VMName $tempVmName -VMSize $VirtualMachineSize
+$vmConfig = Set-AzVMBootDiagnostic -VM $vmConfig -Disable
+$vmConfig = Set-AzVMOSDisk -VM $vmConfig -ManagedDiskId $newDisk.Id -CreateOption Attach -Windows
+
+$nic = New-AzNetworkInterface `
+    -Name "$tempVmName-nic" `
+    -ResourceGroupName $TempRG `
+    -Location $Location `
+    -SubnetId $subnet.Id
+
+$vmConfig = Add-AzVMNetworkInterface -VM $vmConfig -Id $nic.Id
+
+New-AzVM `
+    -VM $vmConfig `
+    -ResourceGroupName $TempRG `
+    -Location $Location `
+    -DisableBginfoExtension | Out-Null
+
+Write-Log "Temp VM created. Waiting 30 seconds before sysprep..."
+Start-Sleep -Seconds 30
+
+################################################################################################################
+# SYSPREP
+################################################################################################################
+
+Write-Log "Running sysprep..."
+
+$sysprepScript = @'
+Start-Process -FilePath "C:\Windows\System32\Sysprep\Sysprep.exe" -ArgumentList "/generalize /oobe /shutdown /mode:vm" -Wait
+'@
+
+Invoke-AzVMRunCommand `
+    -ResourceGroupName $TempRG `
+    -VMName $tempVmName `
+    -CommandId "RunPowerShellScript" `
+    -ScriptString $sysprepScript | Out-Null
+
+Write-Log "Waiting for VM to stop after sysprep..."
+$stopped = Wait-ForVmState `
+    -ResourceGroupName $TempRG `
+    -VmName $tempVmName `
+    -States @("VM stopped", "VM deallocated")
+
+if (-not $stopped) {
+    throw "VM '$tempVmName' did not stop after sysprep within the expected time."
+}
+
+Write-Log "Ensuring VM is deallocated..."
+Stop-AzVM `
+    -Name $tempVmName `
+    -ResourceGroupName $TempRG `
+    -Force | Out-Null
+
+$deallocated = Wait-ForVmState `
+    -ResourceGroupName $TempRG `
+    -VmName $tempVmName `
+    -States @("VM deallocated")
+
+if (-not $deallocated) {
+    throw "VM '$tempVmName' did not deallocate within the expected time."
+}
+
+################################################################################################################
+# GENERALIZE
+################################################################################################################
+
+Write-Log "Marking VM as generalized..."
+$tempVm = Get-AzVM -ResourceGroupName $TempRG -Name $tempVmName
+Set-AzVM -ResourceGroupName $TempRG -VM $tempVm -Generalized | Out-Null
+
+################################################################################################################
+# PUBLISH TO ACG
+################################################################################################################
+
+Write-Log "Publishing to Azure Compute Gallery..."
+
+$targetRegionObjects = @()
+foreach ($region in $TargetRegions) {
+    $targetRegionObjects += New-AzGalleryTargetRegionObject `
+        -Name $region `
+        -RegionalReplicaCount $ReplicaCount `
+        -StorageAccountType "Standard_LRS"
+}
+
+$sourceVm = Get-AzVM -ResourceGroupName $TempRG -Name $tempVmName
+
+New-AzGalleryImageVersion `
+    -ResourceGroupName $GalleryResourceGroupName `
+    -GalleryName $GalleryName `
+    -GalleryImageDefinitionName $GalleryImageDefinitionName `
+    -Name $versionNumber `
+    -Location $Location `
+    -TargetRegion $targetRegionObjects `
+    -SourceImageId $sourceVm.Id `
+    -PublishingProfileExcludeFromLatest:$ExcludeFromLatest | Out-Null
+
+Write-Log "Image version '$versionNumber' created successfully."
+
+################################################################################################################
+# CLEANUP
+################################################################################################################
+
+Write-Log "Removing temporary resource group '$TempRG'..."
+Remove-AzResourceGroup -Name $TempRG -Force | Out-Null
+
+Write-Log "Runbook completed successfully."
