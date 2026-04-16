@@ -1,6 +1,7 @@
 ################################################################################################################
 # README 
 # © Phoenix Software 2026
+# Developed by Aiden Wright
 ################################################################################################################
 # 1. Create Automation Account with managed Identiy
 # 2. Create Custom Role that will be assigned to the AVD Subscription
