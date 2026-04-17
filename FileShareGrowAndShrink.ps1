@@ -411,9 +411,18 @@ foreach ($ShareName in $SharesToProcess) {
                 $reason = "Utilization is low enough to shrink, but shrink lock is still active."
             }
             else {
-                $action = "Shrink"
-                $requestedQuotaGiB = [int][math]::Ceiling($usedGiBExact / ($ShrinkTargetPercent / 100))
-                $reason = "Utilization is at or below $ShrinkThresholdPercent%; reducing quota to target ~$ShrinkTargetPercent% utilization."
+                $calculatedShrinkTargetGiB = [int][math]::Ceiling($usedGiBExact / ($ShrinkTargetPercent / 100))
+
+                if ($calculatedShrinkTargetGiB -lt 100) {
+                    $action = "None"
+                    $requestedQuotaGiB = $currentQuotaGiB
+                    $reason = "Shrink skipped because calculated target quota ($calculatedShrinkTargetGiB GiB) would be less than 100 GiB."
+                }
+                else {
+                    $action = "Shrink"
+                    $requestedQuotaGiB = $calculatedShrinkTargetGiB
+                    $reason = "Utilization is at or below $ShrinkThresholdPercent%; reducing quota to target ~$ShrinkTargetPercent% utilization."
+                }
             }
         }
 
