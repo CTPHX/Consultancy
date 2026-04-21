@@ -72,7 +72,7 @@ Import-Module Az.Resources
 # CONFIG
 ################################################################################################################
 
-$SubscriptionId = "x-x-x-x"
+$SubscriptionId = "X-X-X-X"
 $Location = "UK South"
 
 $ImagesResourceGroupName  = "rg-"
@@ -82,17 +82,20 @@ $GalleryResourceGroupName = "rg-"
 $VirtualNetworkName = "vnet-"
 $SubnetName         = "snet-"
 
-$VirtualMachineSize = "Standard_D2s_v5"
+$VirtualMachineSize = "Standard_D2ds_v5"
 $TempResourceGroupPrefix = "avd-gold"
 
 $ReplicaCount = 1
 $TargetRegions = @($Location)
 $ExcludeFromLatest = $false
 
+# Sysprep controls
+$SysprepTimeoutMinutes    = 10
+$SysprepPollSeconds       = 30
+
 ################################################################################################################
 # LOGGING
 ################################################################################################################
-
 function Write-Log {
     param([string]$Message)
     Write-Output ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $Message)
@@ -154,11 +157,9 @@ function Get-NextGalleryVersion {
         return "0.0.1"
     }
 
-    $latest = $versions |
-        Sort-Object { [version]$_.Name } |
-        Select-Object -Last 1
-
+    $latest = $versions | Sort-Object { [version]$_.Name } | Select-Object -Last 1
     $v = [version]$latest.Name
+
     $build = $v.Build + 1
     $minor = $v.Minor
     $major = $v.Major
@@ -199,7 +200,6 @@ function Wait-ForVmState {
 ################################################################################################################
 # AUTH
 ################################################################################################################
-
 $ErrorActionPreference = "Stop"
 
 try {
@@ -216,7 +216,6 @@ catch {
 ################################################################################################################
 # VALIDATION
 ################################################################################################################
-
 try {
     Write-Log "Validating inputs..."
 
@@ -241,7 +240,6 @@ catch {
 ################################################################################################################
 # VERSION
 ################################################################################################################
-
 try {
     Write-Log "Getting next gallery version..."
 
@@ -259,7 +257,6 @@ catch {
 ################################################################################################################
 # TEMP RESOURCE GROUP
 ################################################################################################################
-
 $TempRG = "$TempResourceGroupPrefix-$(Get-Date -Format 'HHmmss')"
 
 try {
@@ -274,10 +271,9 @@ catch {
 ################################################################################################################
 # SNAPSHOT + DISK
 ################################################################################################################
-
-$tempVmName = "$GoldVmName-vm-$versionNumber"
+$tempVmName   = "$GoldVmName-vm-$versionNumber"
 $snapshotName = "$GoldVmName-snap-$versionNumber"
-$newDiskName = "$GoldVmName-disk-$versionNumber"
+$newDiskName  = "$GoldVmName-disk-$versionNumber"
 
 try {
     Write-Log "Creating snapshot and cloned disk..."
@@ -320,7 +316,6 @@ catch {
 ################################################################################################################
 # NETWORK
 ################################################################################################################
-
 try {
     Write-Log "Getting subnet '$SubnetName' from VNet '$VirtualNetworkName'..."
 
@@ -344,7 +339,6 @@ catch {
 ################################################################################################################
 # VM CREATE
 ################################################################################################################
-
 try {
     Write-Log "Creating temp VM: $tempVmName"
 
@@ -377,7 +371,6 @@ catch {
 ################################################################################################################
 # PREP WAIT
 ################################################################################################################
-
 try {
     Write-Log "Waiting 30 seconds before sysprep..."
     Start-Sleep -Seconds 30
@@ -389,23 +382,87 @@ catch {
 ################################################################################################################
 # SYSPREP
 ################################################################################################################
-
 try {
-    Write-Log "Running sysprep on temp VM..."
+    $MaxChecks = [math]::Ceiling(($SysprepTimeoutMinutes * 60) / $SysprepPollSeconds)
 
-    $sysprepScript = @'
-$sysprep = Start-Process -FilePath "C:\Windows\System32\Sysprep\Sysprep.exe" `
-    -ArgumentList "/generalize /oobe /mode:vm /quit" `
-    -Wait -PassThru
+    Write-Log "Starting sysprep on temp VM..."
 
-Write-Output "Sysprep exit code: $($sysprep.ExitCode)"
+    $startSysprepScript = @'
+$sysprepExe = "C:\Windows\System32\Sysprep\Sysprep.exe"
 
+if (-not (Test-Path $sysprepExe)) {
+    throw "Sysprep executable not found at $sysprepExe"
+}
+
+Start-Process -FilePath $sysprepExe `
+    -ArgumentList "/generalize /oobe /mode:vm /shutdown" `
+    -WindowStyle Hidden
+
+Write-Output "Sysprep process launched successfully."
+'@
+
+    $runCmd = Invoke-AzVMRunCommand `
+        -ResourceGroupName $TempRG `
+        -VMName $tempVmName `
+        -CommandId "RunPowerShellScript" `
+        -ScriptString $startSysprepScript `
+        -ErrorAction Stop
+
+    Write-Output "===== Sysprep Start Output ====="
+    $runCmd.Value | ForEach-Object { Write-Output $_.Message }
+
+    Write-Log "Polling VM state for up to $SysprepTimeoutMinutes minutes..."
+
+    $sysprepCompleted = $false
+
+    for ($i = 1; $i -le $MaxChecks; $i++) {
+        Start-Sleep -Seconds $SysprepPollSeconds
+
+        $vmStatus = Get-AzVM `
+            -ResourceGroupName $TempRG `
+            -Name $tempVmName `
+            -Status `
+            -ErrorAction Stop
+
+        $powerState   = $vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1
+        $powerCode    = $powerState.Code
+        $powerDisplay = $powerState.DisplayStatus
+
+        Write-Log "Sysprep check $i/$MaxChecks - VM state: $powerDisplay ($powerCode)"
+
+        if ($powerCode -in @("PowerState/stopped", "PowerState/deallocated")) {
+            $sysprepCompleted = $true
+            Write-Log "Sysprep completed and VM has shut down."
+            break
+        }
+    }
+
+    if (-not $sysprepCompleted) {
+        Write-Log "Sysprep exceeded $SysprepTimeoutMinutes minutes. Collecting Panther logs before failing..."
+
+        $collectLogsScript = @'
 $errLog = "C:\Windows\System32\Sysprep\Panther\setuperr.log"
 $actLog = "C:\Windows\System32\Sysprep\Panther\setupact.log"
 
+Write-Output "===== Sysprep timeout diagnostics ====="
+Write-Output "Timestamp: $(Get-Date -Format s)"
+
+try {
+    $proc = Get-Process -Name sysprep -ErrorAction SilentlyContinue
+    if ($proc) {
+        Write-Output "Sysprep process still running. PID(s): $($proc.Id -join ', ')"
+    }
+    else {
+        Write-Output "Sysprep process is not currently running."
+    }
+}
+catch {
+    Write-Output "Unable to query sysprep.exe process: $($_.Exception.Message)"
+}
+
 if (Test-Path $errLog) {
     Write-Output "===== setuperr.log ====="
-    Get-Content $errLog -Tail 100
+    Get-Content $errLog -Tail 200
 }
 else {
     Write-Output "setuperr.log not found"
@@ -413,68 +470,68 @@ else {
 
 if (Test-Path $actLog) {
     Write-Output "===== setupact.log ====="
-    Get-Content $actLog -Tail 100
+    Get-Content $actLog -Tail 200
 }
 else {
     Write-Output "setupact.log not found"
 }
-
-if ($sysprep.ExitCode -ne 0) {
-    throw "Sysprep failed with exit code $($sysprep.ExitCode)"
-}
 '@
 
-    $runCmd = Invoke-AzVMRunCommand `
-        -ResourceGroupName $TempRG `
-        -VMName $tempVmName `
-        -CommandId "RunPowerShellScript" `
-        -ScriptString $sysprepScript `
-        -ErrorAction Stop
+        try {
+            $logCmd = Invoke-AzVMRunCommand `
+                -ResourceGroupName $TempRG `
+                -VMName $tempVmName `
+                -CommandId "RunPowerShellScript" `
+                -ScriptString $collectLogsScript `
+                -ErrorAction Stop
 
-    Write-Output "===== Run Command Output ====="
-    $runCmd.Value | ForEach-Object {
-        Write-Output $_.Message
+            Write-Output "===== Sysprep Timeout Diagnostics ====="
+            $logCmd.Value | ForEach-Object { Write-Output $_.Message }
+        }
+        catch {
+            Write-Warning "Failed to collect sysprep logs from temp VM: $($_.Exception.Message)"
+        }
+
+        throw "Sysprep did not complete within $SysprepTimeoutMinutes minutes. Panther logs were written above where available."
     }
 
-    Write-Log "Sysprep command finished"
+    Write-Log "Sysprep completed successfully within timeout."
 }
 catch {
     Fail-Step "SYSPREP" $_
 }
 
 ################################################################################################################
-# POST-SYSPREP WAIT
-################################################################################################################
-
-try {
-    Write-Log "Waiting 30 seconds after sysprep..."
-    Start-Sleep -Seconds 30
-}
-catch {
-    Fail-Step "POST-SYSPREP WAIT" $_
-}
-
-################################################################################################################
 # SYSPREP STATUS
 ################################################################################################################
-
 try {
-    Write-Log "Reading Sysprep status from registry..."
+    $vmStatus = Get-AzVM `
+        -ResourceGroupName $TempRG `
+        -Name $tempVmName `
+        -Status `
+        -ErrorAction Stop
 
-    $stateScript = @'
+    $powerCode = ($vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1).Code
+
+    if ($powerCode -notin @("PowerState/stopped", "PowerState/deallocated")) {
+        Write-Log "Reading Sysprep status from registry..."
+
+        $stateScript = @'
 Get-ItemProperty -Path "HKLM:\SYSTEM\Setup\Status\SysprepStatus" | Format-List *
 '@
 
-    $state = Invoke-AzVMRunCommand `
-        -ResourceGroupName $TempRG `
-        -VMName $tempVmName `
-        -CommandId "RunPowerShellScript" `
-        -ScriptString $stateScript `
-        -ErrorAction Stop
+        $state = Invoke-AzVMRunCommand `
+            -ResourceGroupName $TempRG `
+            -VMName $tempVmName `
+            -CommandId "RunPowerShellScript" `
+            -ScriptString $stateScript `
+            -ErrorAction Stop
 
-    Write-Output "===== Sysprep Status ====="
-    $state.Value | ForEach-Object {
-        Write-Output $_.Message
+        Write-Output "===== Sysprep Status ====="
+        $state.Value | ForEach-Object { Write-Output $_.Message }
+    }
+    else {
+        Write-Log "Skipping guest sysprep status check because VM is already stopped."
     }
 }
 catch {
@@ -484,9 +541,9 @@ catch {
 ################################################################################################################
 # STOP / DEALLOCATE
 ################################################################################################################
-
 try {
     Write-Log "Stopping VM after successful sysprep..."
+
     Stop-AzVM `
         -Name $tempVmName `
         -ResourceGroupName $TempRG `
@@ -494,8 +551,8 @@ try {
         -ErrorAction Stop | Out-Null
 
     Write-Log "Waiting for VM to reach deallocated state..."
-
     $deallocated = $false
+
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Seconds 15
 
@@ -505,7 +562,7 @@ try {
             -Status `
             -ErrorAction Stop
 
-        $powerCode = ($vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1).Code
+        $powerCode    = ($vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1).Code
         $powerDisplay = ($vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" } | Select-Object -First 1).DisplayStatus
 
         Write-Log "Current VM power state: $powerDisplay ($powerCode)"
@@ -529,15 +586,14 @@ catch {
 ################################################################################################################
 # PUBLISH TO ACG FROM OS DISK
 ################################################################################################################
-
 try {
     Write-Log "Publishing to Azure Compute Gallery from OS disk..."
 
     $targetRegionsParam = @()
     foreach ($region in $TargetRegions) {
         $targetRegionsParam += @{
-            Name = $region
-            ReplicaCount = $ReplicaCount
+            Name               = $region
+            ReplicaCount       = $ReplicaCount
             StorageAccountType = "Standard_LRS"
         }
     }
@@ -573,7 +629,6 @@ catch {
 ################################################################################################################
 # CLEANUP
 ################################################################################################################
-
 try {
     Write-Log "Cleaning up temp resource group: $TempRG"
     Remove-AzResourceGroup -Name $TempRG -Force -ErrorAction Stop | Out-Null
