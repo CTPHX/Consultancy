@@ -1,7 +1,7 @@
 ################################################################################################################
 # README
+# Developed by Aiden Wright
 # © Phoenix Software 2026
-# Developed in the style of FileShareGrowAndShrink.ps1
 #
 # PURPOSE
 # - Connect to Azure using the Automation Account managed identity
