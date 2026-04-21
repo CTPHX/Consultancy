@@ -1,7 +1,7 @@
 ################################################################################################################
 # README
-# Developed by Aiden Wright
 # © Phoenix Software 2026
+# Developed by Aiden Wright
 #
 # PURPOSE
 # - Connect to Azure using the Automation Account managed identity
