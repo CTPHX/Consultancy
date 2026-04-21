@@ -6,12 +6,13 @@
 # PURPOSE
 # - Connect to Azure using the Automation Account managed identity
 # - Traverse one or more Azure File Shares recursively
-# - Identify .avhdx files whose LastModified date is older than the configured retention period
+# - Identify avhdx files whose LastModified date is older than the configured retention period
 # - Delete matching files, or log only when WhatIfMode is enabled
 #
 # REQUIRED RBAC
 # - Management plane access to the storage account resource
 # - Data plane access to Azure Files sufficient to list and delete files
+# - Storage File Data SMB Share Contributor & Storage Account Contributor at the Storage Account level
 #
 # RECOMMENDATION
 # - Run initially with $WhatIfMode = $true
