@@ -8,6 +8,7 @@
 # it will not shrink within 30 days of a growth, and
 # it will not shrink below 100 GiB.
 # Each share is tracked individually using Automation Variables, so decisions are based on previous runs.
+# Automation Variables to be set in the Automatio Account are FSLogix-LastGrowTimesJson & FSLogix-ShrinkCountsJson (Non-Encrypted)
 # This prevents constant resizing and keeps shares at a safe, efficient size for FSLogix profiles.
 ################################################################################################################
 # Storage Account Contributor to the Managed Identity - RG Level.
