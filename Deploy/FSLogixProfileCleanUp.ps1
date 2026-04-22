@@ -6,7 +6,7 @@
 # PURPOSE
 # - Connect to Azure using the Automation Account managed identity
 # - Traverse one or more Azure File Shares recursively
-# - Identify avhdx files whose LastModified date is older than the configured retention period
+# - Identify vhdx files whose LastModified date is older than the configured retention period
 # - Delete matching files, or log only when WhatIfMode is enabled
 #
 # REQUIRED RBAC
