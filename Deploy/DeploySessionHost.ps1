@@ -12,7 +12,6 @@ RUNTIME PARAMETERS
 - JoinType
 - AppendToExistingPrefix
 - DeleteExistingHosts
-- CustomImageVersion
 
 JOIN TYPES
 - ADDS  = classic Active Directory / Entra Domain Services join using Key Vault credentials
@@ -34,13 +33,11 @@ $SubscriptionId                    = "00000000-0000-0000-0000-000000000000"
 $Location                          = "uksouth"
 
 $HostPoolResourceGroupName         = "rg-avd-prod"
-$HostPoolName                      = "hp-avd-prod"
 
 $SessionHostResourceGroupName      = "rg-avd-prod-sh"
 
 $GalleryResourceGroupName          = "rg-avd-images-prod"
 $GalleryName                       = "acgAvdProd"
-$GalleryImageDefinitionName        = "img-avd-prod"
 
 $VirtualNetworkResourceGroupName   = "rg-network-prod"
 $VirtualNetworkName                = "vnet-avd-prod"
@@ -87,14 +84,17 @@ param(
     [ValidateSet('ADDS','ENTRA')]
     [string]$JoinType,
 
+    [Parameter(Mandatory = $true)]
+    [string]$HostPoolName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$GalleryImageDefinitionName,
+
     [Parameter(Mandatory = $false)]
     [bool]$AppendToExistingPrefix = $true,
 
     [Parameter(Mandatory = $false)]
-    [bool]$DeleteExistingHosts = $false,
-
-    [Parameter(Mandatory = $false)]
-    [string]$CustomImageVersion
+    [bool]$DeleteExistingHosts = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -344,27 +344,6 @@ function Get-LatestGalleryImageVersionId {
 
     $latest = $versions | Sort-Object { [version]$_.Name } | Select-Object -Last 1
     return $latest.Id
-}
-
-function Get-SpecificGalleryImageVersionId {
-    param(
-        [string]$ResourceGroupName,
-        [string]$GalleryName,
-        [string]$ImageDefinitionName,
-        [string]$VersionName
-    )
-
-    $version = Get-AzGalleryImageVersion `
-        -ResourceGroupName $ResourceGroupName `
-        -GalleryName $GalleryName `
-        -GalleryImageDefinitionName $ImageDefinitionName `
-        -Name $VersionName
-
-    if (-not $version) {
-        throw "Gallery image version '$VersionName' was not found."
-    }
-
-    return $version.Id
 }
 
 function Get-HostPoolRegistrationToken {
@@ -736,21 +715,14 @@ try {
         Write-Log -Level 'INFO' -Component 'PLAN' -Message ("New hosts to create: {0}" -f ($targetVmNames -join ', '))
     }
 
-    if ([string]::IsNullOrWhiteSpace($CustomImageVersion)) {
-        $imageVersionId = Get-LatestGalleryImageVersionId `
-            -ResourceGroupName $GalleryResourceGroupName `
-            -GalleryName $GalleryName `
-            -ImageDefinitionName $GalleryImageDefinitionName
-        Write-Log -Level 'SUCCESS' -Component 'IMAGE' -Message "Using latest gallery image version: $imageVersionId"
-    }
-    else {
-        $imageVersionId = Get-SpecificGalleryImageVersionId `
-            -ResourceGroupName $GalleryResourceGroupName `
-            -GalleryName $GalleryName `
-            -ImageDefinitionName $GalleryImageDefinitionName `
-            -VersionName $CustomImageVersion
-        Write-Log -Level 'SUCCESS' -Component 'IMAGE' -Message "Using explicit gallery image version: $imageVersionId"
-    }
+    Write-StepBanner -Message 'IMAGE SELECTION'
+
+    $imageVersionId = Get-LatestGalleryImageVersionId `
+        -ResourceGroupName $GalleryResourceGroupName `
+        -GalleryName $GalleryName `
+        -ImageDefinitionName $GalleryImageDefinitionName
+
+    Write-Log -Level 'SUCCESS' -Component 'IMAGE' -Message ("Using latest gallery image version: {0}" -f $imageVersionId)
 
     $registrationToken = Get-HostPoolRegistrationToken
 
