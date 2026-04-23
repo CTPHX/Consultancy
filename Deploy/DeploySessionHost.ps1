@@ -82,7 +82,7 @@ param(
 
     [Parameter(Mandatory = $true)]
     [ValidateSet('ADDS','ENTRA')]
-    [string]$JoinType,
+    [string]$JoinType = 'ADDS'
 
     [Parameter(Mandatory = $true)]
     [string]$HostPoolName,
