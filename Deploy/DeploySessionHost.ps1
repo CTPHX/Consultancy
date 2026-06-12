@@ -24,39 +24,63 @@ NOTES
 - This runbook is intended for Azure Automation with a managed identity.
 #>
 
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$VmNamePrefix,
+
+    [Parameter(Mandatory = $true)]
+    [int]$SessionHostCount,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('ADDS','ENTRA')]
+    [string]$JoinType,
+
+    [Parameter(Mandatory = $true)]
+    [string]$HostPoolName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$GalleryImageDefinitionName,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$AppendToExistingPrefix = $true,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$DeleteExistingHosts = $false
+)
+
 # ==========================================
 # ENVIRONMENT CONFIG - PROD
 # Replace all placeholder values before use
 # ==========================================
 
-$SubscriptionId                    = "00000000-0000-0000-0000-000000000000"
+$SubscriptionId                    = "x-x-x-x"
 $Location                          = "uksouth"
 
-$HostPoolResourceGroupName         = "rg-avd-prod"
+$HostPoolResourceGroupName         = "rg-avd-hosts-uks"
 
-$SessionHostResourceGroupName      = "rg-avd-prod-sh"
+$SessionHostResourceGroupName      = "rg-avd-hosts-uks"
 
-$GalleryResourceGroupName          = "rg-avd-images-prod"
-$GalleryName                       = "acgAvdProd"
+$GalleryResourceGroupName          = "rg-avd-images-uks"
+$GalleryName                       = ""
 
-$VirtualNetworkResourceGroupName   = "rg-network-prod"
-$VirtualNetworkName                = "vnet-avd-prod"
-$SubnetName                        = "snet-avd-sessionhosts"
+$VirtualNetworkResourceGroupName   = "rg-avd-network-uks"
+$VirtualNetworkName                = "vnet-spoke-avd-uks"
+$SubnetName                        = "snet-avd-internal-uks"
 
-$VmSize                            = "Standard_D4s_v5"
+$VmSize                            = "Standard_D2ds_v6"
 
-$KeyVaultName                      = "kv-avd-prod"
-$LocalAdminUsernameSecretName      = "avd-localadmin-username"
-$LocalAdminPasswordSecretName      = "avd-localadmin-password"
+$KeyVaultName                      = ""
+$LocalAdminUsernameSecretName      = "adm-local-upn"
+$LocalAdminPasswordSecretName      = "adm-local-pw"
 
 # ADDS join settings
-$DomainFqdn                        = "corp.contoso.com"
-$DomainOuPath                      = "OU=AVD,OU=Servers,DC=corp,DC=contoso,DC=com"
-$DomainJoinUsernameSecretName      = "avd-domainjoin-username"
-$DomainJoinPasswordSecretName      = "avd-domainjoin-password"
+$DomainFqdn                        = ""
+$DomainOuPath                      = ""
+$DomainJoinUsernameSecretName      = "domainjoin-upn"
+$DomainJoinPasswordSecretName      = "domainjoin-pw"
 
 # ENTRA join settings
-$TenantId                          = "00000000-0000-0000-0000-000000000000"
+$TenantId                          = ""
 $EnableIntuneEnrollment            = $true
 
 # Optional defaults
@@ -73,37 +97,20 @@ $Tags                              = @{
     "ManagedBy"   = "AzureAutomation"
 }
 
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$VmNamePrefix,
-
-    [Parameter(Mandatory = $true)]
-    [int]$SessionHostCount,
-
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('ADDS','ENTRA')]
-    [string]$JoinType = 'ADDS'
-
-    [Parameter(Mandatory = $true)]
-    [string]$HostPoolName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$GalleryImageDefinitionName,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$AppendToExistingPrefix = $true,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$DeleteExistingHosts = $false
-)
 
 $ErrorActionPreference = 'Stop'
+$ConfirmPreference = 'None'
 
 function Write-Log {
     param(
+        [Parameter(Position = 0)]
+        [string]$Message,
+
+        [Parameter(Position = 1)]
         [ValidateSet('INFO','WARN','ERROR','SUCCESS','DEBUG')]
         [string]$Level = 'INFO',
-        [string]$Message,
+
+        [Parameter(Position = 2)]
         [string]$Component = 'RUNBOOK'
     )
 
@@ -280,9 +287,11 @@ function Wait-ForVmPowerState {
         [string]$VmName,
         [string[]]$DesiredStates,
         [int]$TimeoutMinutes = 20,
-        [int]$PollSeconds = 20
+        [int]$PollSeconds = 20,
+        [ref]$Succeeded
     )
 
+    $Succeeded.Value = $false
     $maxChecks = [math]::Ceiling(($TimeoutMinutes * 60) / $PollSeconds)
 
     for ($i = 1; $i -le $maxChecks; $i++) {
@@ -290,21 +299,22 @@ function Wait-ForVmPowerState {
         $powerState = ($vm.Statuses | Where-Object { $_.Code -like 'PowerState/*' } | Select-Object -First 1).DisplayStatus
         Write-Log "VM '$VmName' power state: $powerState"
         if ($DesiredStates -contains $powerState) {
-            return $true
+            $Succeeded.Value = $true
+            return
         }
         Start-Sleep -Seconds $PollSeconds
     }
-
-    return $false
 }
 
 function Wait-ForSessionHostRegistration {
     param(
         [string]$ExpectedVmName,
         [int]$TimeoutMinutes = 20,
-        [int]$PollSeconds = 30
+        [int]$PollSeconds = 30,
+        [ref]$Registered
     )
 
+    $Registered.Value = $false
     $maxChecks = [math]::Ceiling(($TimeoutMinutes * 60) / $PollSeconds)
 
     for ($i = 1; $i -le $maxChecks; $i++) {
@@ -316,14 +326,13 @@ function Wait-ForSessionHostRegistration {
 
         if ($match) {
             Write-Log "Session host '$ExpectedVmName' is now registered in host pool '$HostPoolName'."
-            return $true
+            $Registered.Value = $true
+            return
         }
 
         Write-Log "Waiting for session host '$ExpectedVmName' to register..."
         Start-Sleep -Seconds $PollSeconds
     }
-
-    return $false
 }
 
 function Get-LatestGalleryImageVersionId {
@@ -347,6 +356,11 @@ function Get-LatestGalleryImageVersionId {
 }
 
 function Get-HostPoolRegistrationToken {
+    param(
+        [ref]$RegistrationToken
+    )
+
+    $RegistrationToken.Value = $null
     $expiration = (Get-Date).ToUniversalTime().AddHours($RegistrationTokenHours).ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ')
 
     Write-StepBanner -Message 'REGISTRATION TOKEN'
@@ -360,7 +374,7 @@ function Get-HostPoolRegistrationToken {
         throw "Host pool registration token was not returned."
     }
 
-    return $token.Token
+    $RegistrationToken.Value = $token.Token
 }
 
 function Invoke-DrainAndDeleteExistingHosts {
@@ -477,12 +491,24 @@ function New-SessionHostVm {
 
     $nicName = "$VmName-nic"
 
+    $existingVm = Get-AzVM -ResourceGroupName $SessionHostResourceGroupName -Name $VmName -ErrorAction SilentlyContinue
+    if ($existingVm) {
+        throw "VM '$VmName' already exists in resource group '$SessionHostResourceGroupName'. This is likely from a previous failed run. Delete the existing VM/resources or rerun with a new VmNamePrefix."
+    }
+
+    $existingNic = Get-AzNetworkInterface -ResourceGroupName $SessionHostResourceGroupName -Name $nicName -ErrorAction SilentlyContinue
+    if ($existingNic) {
+        Write-Log -Level 'WARN' -Component 'NETWORK' -Message "NIC '$nicName' already exists. Removing stale NIC before recreating it."
+        Remove-AzNetworkInterface -ResourceGroupName $SessionHostResourceGroupName -Name $nicName -Force -Confirm:$false
+    }
+
     Write-Log "Creating NIC '$nicName'..."
     $nic = New-AzNetworkInterface `
         -Name $nicName `
         -ResourceGroupName $SessionHostResourceGroupName `
         -Location $Location `
-        -SubnetId $subnet.Id
+        -SubnetId $subnet.Id `
+        -Force
 
     Write-Log "Building VM config for '$VmName'..."
     $vmConfig = New-AzVMConfig -VMName $VmName -VMSize $VmSize
@@ -503,11 +529,13 @@ function New-SessionHostVm {
         -VM $vmConfig `
         -Tag $Tags | Out-Null
 
-    $isReady = Wait-ForVmPowerState `
+    $isReady = $false
+    Wait-ForVmPowerState `
         -ResourceGroupName $SessionHostResourceGroupName `
         -VmName $VmName `
         -DesiredStates @('VM running') `
-        -TimeoutMinutes $VmReadyTimeoutMinutes
+        -TimeoutMinutes $VmReadyTimeoutMinutes `
+        -Succeeded ([ref]$isReady)
 
     if (-not $isReady) {
         throw "VM '$VmName' did not reach the running state within the timeout."
@@ -534,11 +562,13 @@ function Join-SessionHostAdDs {
         -Restart `
         -ForceRerun (Get-Date).Ticks | Out-Null
 
-    $isReady = Wait-ForVmPowerState `
+    $isReady = $false
+    Wait-ForVmPowerState `
         -ResourceGroupName $SessionHostResourceGroupName `
         -VmName $VmName `
         -DesiredStates @('VM running') `
-        -TimeoutMinutes $VmReadyTimeoutMinutes
+        -TimeoutMinutes $VmReadyTimeoutMinutes `
+        -Succeeded ([ref]$isReady)
 
     if (-not $isReady) {
         throw "VM '$VmName' did not return to running after AD DS join."
@@ -575,10 +605,11 @@ function Install-AvdAgentAndRegisterHost {
         [string]$RegistrationToken
     )
 
-    $installRdsRole = $InstallRdsRoleOnServerOS.IsPresent.ToString().ToLower()
+    $installRdsRole = if ($InstallRdsRoleOnServerOS) { '$true' } else { '$false' }
 
     $runScript = @"
 `$ErrorActionPreference = 'Stop'
+`$ConfirmPreference = 'None'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 `$work = 'C:\AVDInstall'
@@ -592,7 +623,7 @@ if ($installRdsRole) {
         Install-WindowsFeature -Name RDS-RD-Server -IncludeManagementTools -ErrorAction Stop | Out-Null
     }
     catch {
-        Write-Output "RDS role install may not apply to this OS: $($_.Exception.Message)"
+        Write-Output "RDS role install may not apply to this OS: `$(`$_.Exception.Message)"
     }
 }
 
@@ -603,7 +634,7 @@ if ($installRdsRole) {
 
 `$installers = @()
 foreach (`$uri in `$uris) {
-    `$expandedUri = (Invoke-WebRequest -MaximumRedirection 0 -Uri `$uri -ErrorAction SilentlyContinue).Headers.Location
+    `$expandedUri = (Invoke-WebRequest -MaximumRedirection 0 -Uri `$uri -UseBasicParsing -ErrorAction SilentlyContinue).Headers.Location
     if (-not `$expandedUri) {
         `$expandedUri = `$uri
     }
@@ -622,8 +653,8 @@ if (-not `$agent -or -not `$bootLoader) {
     throw 'Could not identify AVD agent or bootloader installer.'
 }
 
-Start-Process msiexec.exe -ArgumentList "/i `"`$agent`" /quiet /qn REGISTRATIONTOKEN=$RegistrationToken" -Wait -NoNewWindow
-Start-Process msiexec.exe -ArgumentList "/i `"`$bootLoader`" /quiet /qn" -Wait -NoNewWindow
+Start-Process msiexec.exe -ArgumentList @('/i', `$agent, '/quiet', '/qn', 'REGISTRATIONTOKEN=$RegistrationToken') -Wait -NoNewWindow
+Start-Process msiexec.exe -ArgumentList @('/i', `$bootLoader, '/quiet', '/qn') -Wait -NoNewWindow
 
 Write-Output 'AVD agent and bootloader installation complete.'
 "@
@@ -724,7 +755,8 @@ try {
 
     Write-Log -Level 'SUCCESS' -Component 'IMAGE' -Message ("Using latest gallery image version: {0}" -f $imageVersionId)
 
-    $registrationToken = Get-HostPoolRegistrationToken
+    $registrationToken = $null
+    Get-HostPoolRegistrationToken -RegistrationToken ([ref]$registrationToken)
 
     for ($i = 0; $i -lt $targetVmNames.Count; $i++) {
         $vmName = $targetVmNames[$i]
@@ -756,9 +788,11 @@ try {
             -VmName $vmName `
             -RegistrationToken $registrationToken
 
-        $registered = Wait-ForSessionHostRegistration `
+        $registered = $false
+        Wait-ForSessionHostRegistration `
             -ExpectedVmName $vmName `
-            -TimeoutMinutes $RegistrationTimeoutMinutes
+            -TimeoutMinutes $RegistrationTimeoutMinutes `
+            -Registered ([ref]$registered)
 
         if (-not $registered) {
             throw "VM '$vmName' did not register into host pool '$HostPoolName' within the timeout."
