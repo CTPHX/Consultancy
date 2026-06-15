@@ -1,4 +1,8 @@
 <#
+.Readme
+© Phoenix Software 2026
+Developed by Aiden Wright
+
 .SYNOPSIS
 AVD production deployment runbook for Azure Automation.
 
@@ -9,9 +13,7 @@ Only runtime controls remain in the param block.
 RUNTIME PARAMETERS
 - VmNamePrefix
 - SessionHostCount
-- JoinType
-- AppendToExistingPrefix
-- DeleteExistingHosts
+- OverwriteExisting
 
 JOIN TYPES
 - ADDS  = classic Active Directory / Entra Domain Services join using Key Vault credentials
@@ -22,6 +24,12 @@ NOTES
 - Local admin credentials are read from Key Vault.
 - ADDS join credentials are read from Key Vault when JoinType = ADDS.
 - This runbook is intended for Azure Automation with a managed identity.
+
+Managed Identity Requirements
+- Virtual Machine Contributor
+- Network Contributor
+- Desktop Virtualization Host Pool Contributor
+- Key Vault Secrets User
 #>
 
 param(
@@ -31,21 +39,8 @@ param(
     [Parameter(Mandatory = $true)]
     [int]$SessionHostCount,
 
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('ADDS','ENTRA')]
-    [string]$JoinType,
-
-    [Parameter(Mandatory = $true)]
-    [string]$HostPoolName,
-
-    [Parameter(Mandatory = $true)]
-    [string]$GalleryImageDefinitionName,
-
     [Parameter(Mandatory = $false)]
-    [bool]$AppendToExistingPrefix = $true,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$DeleteExistingHosts = $false
+    [bool]$OverwriteExisting = $false
 )
 
 # ==========================================
@@ -53,8 +48,13 @@ param(
 # Replace all placeholder values before use
 # ==========================================
 
-$SubscriptionId                    = "x-x-x-x"
+$SubscriptionId                    = "X-X-X-X"
 $Location                          = "uksouth"
+
+# Deployment configuration
+$JoinType                          = "ADDS"
+$HostPoolName                      = "vdpool-avd-prod-uks-desktops"
+$GalleryImageDefinitionName        = "WINDOWS11-EMS-Post"
 
 $HostPoolResourceGroupName         = "rg-avd-hosts-uks"
 
@@ -232,9 +232,7 @@ function Get-SessionHostShortName {
     return ($leaf -split '\.')[0]
 }
 
-function Get-PrefixedExistingSessionHostVmNames {
-    param([string]$Prefix)
-
+function Get-ExistingSessionHostVmNames {
     $sessionHosts = Get-AzWvdSessionHost -ResourceGroupName $HostPoolResourceGroupName -HostPoolName $HostPoolName -ErrorAction SilentlyContinue
     if (-not $sessionHosts) {
         return @()
@@ -243,7 +241,7 @@ function Get-PrefixedExistingSessionHostVmNames {
     $names = @()
     foreach ($sessionHost in $sessionHosts) {
         $shortVmName = Get-SessionHostShortName -SessionHostName $sessionHost.Name
-        if ($shortVmName -and $shortVmName.StartsWith($Prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ($shortVmName) {
             $names += $shortVmName
         }
     }
@@ -251,34 +249,19 @@ function Get-PrefixedExistingSessionHostVmNames {
     return @($names | Sort-Object -Unique)
 }
 
-function Get-NextVmNamesForPrefix {
+function Get-NextVmNamesForHostPoolCount {
     param(
         [string]$Prefix,
-        [int]$Count
+        [int]$Count,
+        [int]$ExistingHostCount
     )
-
-    $existingNames = Get-PrefixedExistingSessionHostVmNames -Prefix $Prefix
-    $highest = 0
-
-    foreach ($name in $existingNames) {
-        if ($name -match ('^' + [regex]::Escape($Prefix) + '-(\d+)$')) {
-            $num = [int]$Matches[1]
-            if ($num -gt $highest) {
-                $highest = $num
-            }
-        }
-    }
 
     $newNames = @()
     for ($i = 1; $i -le $Count; $i++) {
-        $newNames += ('{0}-{1:D2}' -f $Prefix, ($highest + $i))
+        $newNames += ('{0}-{1:D2}' -f $Prefix, ($ExistingHostCount + $i))
     }
 
-    return @{
-        ExistingNames = $existingNames
-        NewNames      = $newNames
-        HighestSuffix = $highest
-    }
+    return $newNames
 }
 
 function Wait-ForVmPowerState {
@@ -377,7 +360,120 @@ function Get-HostPoolRegistrationToken {
     $RegistrationToken.Value = $token.Token
 }
 
+function ConvertTo-SingleQuotedLiteral {
+    param(
+        [AllowNull()]
+        [string]$Value
+    )
+
+    if ($null -eq $Value) {
+        return "''"
+    }
+
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Remove-AdComputerObjectIfRequired {
+    param(
+        [string]$VmName,
+        [pscredential]$DomainJoinCredential
+    )
+
+    if ($JoinType -ne 'ADDS') {
+        return
+    }
+
+    if (-not $OverwriteExisting) {
+        return
+    }
+
+    if (-not $DomainJoinCredential) {
+        Write-Log -Level 'WARN' -Component 'ADDS' -Message "No AD DS credential was available. Skipping AD computer object cleanup for '$VmName'."
+        return
+    }
+
+    Write-Log -Level 'INFO' -Component 'ADDS' -Message "Attempting to remove AD computer object for '$VmName' before deleting the VM..."
+
+    $plainPassword = $null
+    $bstr = [IntPtr]::Zero
+
+    try {
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($DomainJoinCredential.Password)
+        $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+
+        $domainDn = (($DomainFqdn -split '\.') | ForEach-Object { "DC=$_" }) -join ','
+        $userLiteral = ConvertTo-SingleQuotedLiteral -Value $DomainJoinCredential.UserName
+        $passwordLiteral = ConvertTo-SingleQuotedLiteral -Value $plainPassword
+        $domainDnLiteral = ConvertTo-SingleQuotedLiteral -Value $domainDn
+        $vmNameLiteral = ConvertTo-SingleQuotedLiteral -Value $VmName
+
+        $cleanupScript = @"
+`$ErrorActionPreference = 'Stop'
+
+`$username = $userLiteral
+`$password = $passwordLiteral
+`$domainDn = $domainDnLiteral
+`$vmName = $vmNameLiteral
+
+try {
+    Add-Type -AssemblyName System.DirectoryServices
+
+    `$root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://`$domainDn", `$username, `$password)
+    `$searcher = New-Object System.DirectoryServices.DirectorySearcher(`$root)
+    `$searcher.Filter = "(&(objectCategory=computer)(sAMAccountName=`$vmName`$))"
+    `$searcher.SearchScope = [System.DirectoryServices.SearchScope]::Subtree
+
+    `$result = `$searcher.FindOne()
+
+    if (`$null -eq `$result) {
+        Write-Output "No AD computer object found for '`$vmName'."
+        return
+    }
+
+    `$computerObject = `$result.GetDirectoryEntry()
+    `$distinguishedName = `$computerObject.Properties['distinguishedName'][0]
+    `$computerObject.DeleteTree()
+    `$computerObject.CommitChanges()
+
+    Write-Output "Removed AD computer object '`$distinguishedName'."
+}
+catch {
+    Write-Output "AD computer object cleanup failed for '`$vmName': `$(`$_.Exception.Message)"
+    throw
+}
+"@
+
+        $cleanupResult = Invoke-AzVMRunCommand `
+            -ResourceGroupName $SessionHostResourceGroupName `
+            -VMName $VmName `
+            -CommandId 'RunPowerShellScript' `
+            -ScriptString $cleanupScript `
+            -ErrorAction Stop
+
+        $cleanupResult.Value | ForEach-Object {
+            if ($_.Message) {
+                Write-Log -Level 'INFO' -Component 'ADDS' -Message $_.Message
+            }
+        }
+    }
+    catch {
+        Write-Log -Level 'WARN' -Component 'ADDS' -Message ("Could not remove AD computer object for '{0}'. The VM deletion will continue. Error: {1}" -f $VmName, $_.Exception.Message)
+    }
+    finally {
+        if ($bstr -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+
+        $plainPassword = $null
+    }
+}
+
+
 function Invoke-DrainAndDeleteExistingHosts {
+    param(
+        [pscredential]$DomainJoinCredential
+    )
+
     Write-Log "Enumerating existing session hosts in host pool '$HostPoolName'..."
     $sessionHosts = Get-AzWvdSessionHost -ResourceGroupName $HostPoolResourceGroupName -HostPoolName $HostPoolName -ErrorAction SilentlyContinue
 
@@ -387,12 +483,13 @@ function Invoke-DrainAndDeleteExistingHosts {
     }
 
     foreach ($sessionHost in $sessionHosts) {
-        $sessionHostName = $sessionHost.Name
+        $sessionHostFullName = $sessionHost.Name
+        $sessionHostName = ($sessionHostFullName -split '/')[-1]
         $shortVmName = Get-SessionHostShortName -SessionHostName $sessionHostName
         $vmName = Get-SessionHostVmNameFromResourceId -ResourceId $sessionHost.ResourceId
         if (-not $vmName) { $vmName = $shortVmName }
 
-        Write-Log "Processing existing session host '$sessionHostName' (VM: '$vmName')..."
+        Write-Log "Processing existing session host '$sessionHostFullName' as '$sessionHostName' (VM: '$vmName')..."
 
         try {
             if ($DrainModeBeforeDelete) {
@@ -434,6 +531,8 @@ function Invoke-DrainAndDeleteExistingHosts {
         catch {
             Throw-RunbookError -Step "REMOVE_SESSION_HOST_$sessionHostName" -ErrorRecord $_
         }
+
+        Remove-AdComputerObjectIfRequired -VmName $vmName -DomainJoinCredential $DomainJoinCredential
 
         try {
             $vm = Get-AzVM -ResourceGroupName $SessionHostResourceGroupName -Name $vmName -ErrorAction SilentlyContinue
@@ -694,55 +793,38 @@ try {
         Write-Log -Level 'SUCCESS' -Component 'KEYVAULT' -Message "AD DS join credential retrieved successfully."
     }
 
-    $vmPlan = Get-NextVmNamesForPrefix -Prefix $VmNamePrefix -Count $SessionHostCount
-    $existingPrefixedHosts = @($vmPlan.ExistingNames)
-    $targetVmNames = @($vmPlan.NewNames)
+    $existingHostVmNames = @(Get-ExistingSessionHostVmNames)
+    $existingHostCount = $existingHostVmNames.Count
 
     Write-StepBanner -Message 'DEPLOYMENT PLAN'
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("JoinType               : {0}" -f $JoinType)
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Host pool              : {0}" -f $HostPoolName)
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("VM prefix              : {0}" -f $VmNamePrefix)
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Requested new hosts    : {0}" -f $SessionHostCount)
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("AppendToExistingPrefix : {0}" -f $AppendToExistingPrefix)
-    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("DeleteExistingHosts    : {0}" -f ([bool]$DeleteExistingHosts))
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("JoinType           : {0}" -f $JoinType)
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Host pool          : {0}" -f $HostPoolName)
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("VM prefix          : {0}" -f $VmNamePrefix)
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Requested hosts    : {0}" -f $SessionHostCount)
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("OverwriteExisting  : {0}" -f ([bool]$OverwriteExisting))
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Existing host count: {0}" -f $existingHostCount)
 
-    if ($existingPrefixedHosts.Count -gt 0) {
-        Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Found {0} existing session host(s) using prefix '{1}': {2}" -f $existingPrefixedHosts.Count, $VmNamePrefix, ($existingPrefixedHosts -join ', '))
-        Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Highest existing numeric suffix: {0}" -f $vmPlan.HighestSuffix)
-
-        if ($AppendToExistingPrefix) {
-            Write-Log -Level 'WARN' -Component 'PLAN' -Message "Prefix match detected and AppendToExistingPrefix is True. Existing matching hosts will be retained."
-            Write-Log -Level 'INFO' -Component 'PLAN' -Message ("New hosts to create: {0}" -f ($targetVmNames -join ', '))
-        }
-        else {
-            Write-Log -Level 'WARN' -Component 'PLAN' -Message "Prefix match detected but AppendToExistingPrefix is False. Standard deletion behavior will be used if DeleteExistingHosts is enabled."
-
-            if ([bool]$DeleteExistingHosts) {
-                Write-StepBanner -Message 'DELETE EXISTING HOSTS'
-                Invoke-DrainAndDeleteExistingHosts
-                $targetVmNames = @()
-                for ($i = 1; $i -le $SessionHostCount; $i++) {
-                    $targetVmNames += ('{0}-{1:D2}' -f $VmNamePrefix, $i)
-                }
-                Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Replacement hosts to create after deletion: {0}" -f ($targetVmNames -join ', '))
-            }
-            else {
-                Write-Log -Level 'WARN' -Component 'PLAN' -Message "DeleteExistingHosts is False, so no deletion will occur. New hosts will still be appended to avoid name collision."
-                Write-Log -Level 'INFO' -Component 'PLAN' -Message ("New hosts to create: {0}" -f ($targetVmNames -join ', '))
-            }
-        }
+    if ($existingHostCount -gt 0) {
+        Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Existing session host VM names: {0}" -f ($existingHostVmNames -join ', '))
     }
     else {
-        Write-Log -Level 'INFO' -Component 'PLAN' -Message ("No existing hosts found using prefix '{0}'." -f $VmNamePrefix)
+        Write-Log -Level 'INFO' -Component 'PLAN' -Message "No existing session hosts found in host pool."
+    }
 
-        if ([bool]$DeleteExistingHosts) {
+    if ([bool]$OverwriteExisting) {
+        Write-Log -Level 'WARN' -Component 'PLAN' -Message "OverwriteExisting is True. Existing session hosts and their VM resources will be removed before creating replacements."
+
+        if ($existingHostCount -gt 0) {
             Write-StepBanner -Message 'DELETE EXISTING HOSTS'
-            Invoke-DrainAndDeleteExistingHosts
-        }
-        else {
-            Write-Log -Level 'INFO' -Component 'PLAN' -Message "DeleteExistingHosts is False. Existing non-matching hosts will be retained."
+            Invoke-DrainAndDeleteExistingHosts -DomainJoinCredential $domainJoinCredential
         }
 
+        $targetVmNames = @(Get-NextVmNamesForHostPoolCount -Prefix $VmNamePrefix -Count $SessionHostCount -ExistingHostCount 0)
+        Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Replacement hosts to create: {0}" -f ($targetVmNames -join ', '))
+    }
+    else {
+        Write-Log -Level 'INFO' -Component 'PLAN' -Message "OverwriteExisting is False. Existing hosts will be retained. New host numbering will continue from the current host pool count, regardless of VM prefix."
+        $targetVmNames = @(Get-NextVmNamesForHostPoolCount -Prefix $VmNamePrefix -Count $SessionHostCount -ExistingHostCount $existingHostCount)
         Write-Log -Level 'INFO' -Component 'PLAN' -Message ("New hosts to create: {0}" -f ($targetVmNames -join ', '))
     }
 
