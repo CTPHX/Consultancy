@@ -29,6 +29,7 @@ Managed Identity Requirements
 - Network Contributor
 - Desktop Virtualization Host Pool Contributor
 - Key Vault Secrets User
+- Reader
 #>
 
 param(
