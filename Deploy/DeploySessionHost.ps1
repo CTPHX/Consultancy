@@ -1,5 +1,4 @@
 <#
-.Readme
 © Phoenix Software 2026
 Developed by Aiden Wright
 
