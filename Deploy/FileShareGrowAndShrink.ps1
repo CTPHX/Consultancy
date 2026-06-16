@@ -1,33 +1,39 @@
-################################################################################################################
-# README 
-# © Phoenix Software 2026
-# Developed by Aiden Wright
-# The script checks how full each Azure Files (FSLogix) share is.
-# If usage is above 85%, it grows the share by 20% (up to 100 GiB per run).
-# If usage is 70% or below, it shrinks the share to ~80% utilisation, but:
-# it will not shrink within 30 days of a growth, and
-# it will not shrink below 100 GiB.
-# Each share is tracked individually using Automation Variables, so decisions are based on previous runs.
-# Automation Variables to be set in the Automatio Account are FSLogix-LastGrowTimesJson & FSLogix-ShrinkCountsJson (Non-Encrypted)
-# This prevents constant resizing and keeps shares at a safe, efficient size for FSLogix profiles.
-################################################################################################################
-# Storage Account Contributor to the Managed Identity - RG Level.
+<#
+ README 
+ © Phoenix Software 2026
+ Developed by Aiden Wright
+
+ Logic
+ - The script checks how full each Azure Files (FSLogix) share is.
+ - If usage is above 85%, it grows the share by 20% (up to 100 GiB per run).
+ - If usage is 70% or below, it shrinks the share to ~80% utilisation, but:
+ - it will not shrink within 30 days of a growth, and
+ - it will not shrink below 100 GiB.
+ - Each share is tracked individually using Automation Variables, so decisions are based on previous runs.
+ - Automation Variables to be set in the Automatio Account are FSLogix-LastGrowTimesJson & FSLogix-ShrinkCountsJson (Non-Encrypted)
+ - This prevents constant resizing and keeps shares at a safe, efficient size for FSLogix profiles.
+
+Required Roles
+- Storage Account Contributor to the Managed Identity - RG Level.
+#>
+
+
+
 ################################################################################################################
 # CONFIGURATION
 ################################################################################################################
 
 # Azure
-$SubscriptionId     = "00000000-0000-0000-0000-000000000000"
-$ResourceGroupName  = "rg-storage-prod"
-$StorageAccountName = "stfilesprod01"
+$SubscriptionId     = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
+$ResourceGroupName  = "rg-avd-files-uks"
+$StorageAccountName = "saphxdemo"
 
 # Share handling
 $UseMultipleShares  = $true
 $SingleShareName    = "fslogix"
 $ShareNames         = @(
-    "fslogix-a",
-    "fslogix-b",
-    "fslogix-c"
+    "profilesdesktop",
+    "profilesra"
 )
 
 # Share model: PremiumV1 or ProvisionedV2
@@ -40,7 +46,7 @@ $ShrinkTargetPercent    = 80
 $GrowByPercent          = 20
 
 # Safety / behaviour
-$ShrinkLockDays = 30
+$ShrinkLockDays = 1
 $MaxGrowthGiB   = 100
 $WhatIfMode     = $false
 
