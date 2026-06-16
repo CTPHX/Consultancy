@@ -24,9 +24,9 @@ Required Roles
 ################################################################################################################
 
 # Azure
-$SubscriptionId     = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
+$SubscriptionId     = ""
 $ResourceGroupName  = "rg-avd-files-uks"
-$StorageAccountName = "saphxdemo"
+$StorageAccountName = ""
 
 # Share handling
 $UseMultipleShares  = $true
@@ -46,7 +46,7 @@ $ShrinkTargetPercent    = 80
 $GrowByPercent          = 20
 
 # Safety / behaviour
-$ShrinkLockDays = 1
+$ShrinkLockDays = 30
 $MaxGrowthGiB   = 100
 $WhatIfMode     = $false
 
