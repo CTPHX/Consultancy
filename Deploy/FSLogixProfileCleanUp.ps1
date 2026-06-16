@@ -1,62 +1,56 @@
-################################################################################################################
-# README
-# © Phoenix Software 2026
-# Developed by Aiden Wright
-#
-# PURPOSE
-# - Connect to Azure using the Automation Account managed identity
-# - Traverse one or more Azure File Shares recursively
-# - Identify vhdx files whose LastModified date is older than the configured retention period
-# - Delete matching files, or log only when WhatIfMode is enabled
-#
-# REQUIRED RBAC
-# - Management plane access to the storage account resource
-# - Data plane access to Azure Files sufficient to list and delete files
-# - Storage File Data SMB Share Contributor & Storage Account Contributor at the Storage Account level
-#
-# RECOMMENDATION
-# - Run initially with $WhatIfMode = $true
-# - Validate the target file list before enabling deletion
-################################################################################################################
+<#
+ README
+ © Phoenix Software 2026
+ Developed by Aiden Wright
+
+ PURPOSE
+ - Connect to Azure using the Automation Account managed identity
+ - Traverse one or more Azure File Shares recursively
+ - Identify vhdx files whose LastModified date is older than the configured retention period
+ - Delete matching files, or log only when WhatIfMode is enabled
+
+ REQUIRED RBAC
+ - Management plane access to the storage account resource
+ - Data plane access to Azure Files sufficient to list and delete files
+ - Storage File Data SMB Share Contributor & Storage Account Contributor at the Storage Account level
+
+ RECOMMENDATION
+ - Run initially with $WhatIfMode = $true
+ - Validate the target file list before enabling deletion
+#>
 
 ################################################################################################################
 # CONFIGURATION
 ################################################################################################################
 
-# Azure
-$SubscriptionId     = "00000000-0000-0000-0000-000000000000"
-$ResourceGroupName  = "rg-storage-prod"
-$StorageAccountName = "stfilesprod01"
+$SubscriptionId     = ""
+$ResourceGroupName  = "rg-avd"
+$StorageAccountName = ""
 
-# Share handling
 $UseMultipleShares = $true
 $SingleShareName   = "fslogix"
 $ShareNames = @(
-    "fslogix-a",
-    "fslogix-b",
-    "fslogix-c"
+    "profilesdesktop",
+    "profilesra"
 )
 
-# File matching
 $TargetExtension = ".vhdx"
-$RetentionDays   = 90
+$RetentionDays   = 0
 
-# Behaviour / safety
-$WhatIfMode                = $true
-$DeleteEmptyDirectories    = $true
-$ContinueOnDeleteFailure   = $true
-$ExcludedPathFragments     = @(
-    # Example:
-    # "/do-not-touch/",
-    # "/archive/"
-)
+$WhatIfMode              = $false
+$DeleteEmptyDirectories  = $true
+$ContinueOnDeleteFailure = $true
+$ExcludedPathFragments   = @()
+
+$StorageApiVersion = "2021-12-02"
 
 ################################################################################################################
 # MODULES
 ################################################################################################################
 
-Import-Module Az.Accounts
-Import-Module Az.Storage
+
+Import-Module Az.Accounts -RequiredVersion 2.15.0 -Force
+Import-Module Az.Storage  -RequiredVersion 6.1.0  -Force
 
 ################################################################################################################
 # LOGGING
@@ -91,10 +85,6 @@ function Fail-Step {
     if ($null -ne $ErrorRecord) {
         if ($ErrorRecord.Exception) {
             Write-Log ("Message: " + $ErrorRecord.Exception.Message) $ShareName
-
-            if ($ErrorRecord.Exception.InnerException) {
-                Write-Log ("InnerException: " + $ErrorRecord.Exception.InnerException.Message) $ShareName
-            }
         }
 
         if ($ErrorRecord.InvocationInfo -and $ErrorRecord.InvocationInfo.Line) {
@@ -132,67 +122,324 @@ function Get-ShareList {
     return @($SingleShareName.Trim())
 }
 
-function Get-StorageContextFromConnectedAccount {
+function Join-FilePath {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$StorageAccountName
+        [string]$Parent,
+        [string]$Child
     )
 
-    try {
-        return New-AzStorageContext `
-            -StorageAccountName $StorageAccountName `
-            -UseConnectedAccount `
-            -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($Parent)) {
+        return $Child
     }
-    catch {
-        throw "Failed to create storage context using connected account for storage account '$StorageAccountName'. Ensure the managed identity has Azure Files data-plane permissions."
+
+    return ($Parent.TrimEnd("/") + "/" + $Child.TrimStart("/"))
+}
+
+function ConvertTo-EscapedAzurePath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
     }
+
+    return (($Path.Trim("/") -split "/" | ForEach-Object {
+        [System.Uri]::EscapeDataString($_)
+    }) -join "/")
 }
 
 function Test-PathExcluded {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
+    param([string]$Path)
 
     foreach ($fragment in $ExcludedPathFragments) {
-        if ([string]::IsNullOrWhiteSpace($fragment)) {
-            continue
-        }
-
-        if ($Path.ToLowerInvariant().Contains($fragment.ToLowerInvariant())) {
-            return $true
+        if (-not [string]::IsNullOrWhiteSpace($fragment)) {
+            if ($Path.ToLowerInvariant().Contains($fragment.ToLowerInvariant())) {
+                return $true
+            }
         }
     }
 
     return $false
 }
 
-function Get-ChildItemsRecursiveFromShare {
+function ConvertTo-CleanXml {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ShareName,
+        [string]$Content
+    )
 
-        [Parameter(Mandatory = $true)]
-        [Microsoft.Azure.Commands.Common.Authentication.Abstractions.IStorageContext]$Context
+    $cleanContent = $Content
+
+    # Remove UTF-8 BOM if returned as visible characters or actual BOM.
+    $cleanContent = $cleanContent.TrimStart([char]0xFEFF)
+    $cleanContent = $cleanContent -replace "^\u00EF\u00BB\u00BF", ""
+    $cleanContent = $cleanContent -replace "^ï»¿", ""
+    $cleanContent = $cleanContent.TrimStart()
+
+    $xmlDocument = New-Object System.Xml.XmlDocument
+    $xmlDocument.PreserveWhitespace = $false
+    $xmlDocument.LoadXml($cleanContent)
+
+    return $xmlDocument
+}
+
+################################################################################################################
+# STORAGE REST AUTH
+################################################################################################################
+
+function Get-StorageAccountKeyValue {
+    param(
+        [string]$ResourceGroupName,
+        [string]$StorageAccountName
+    )
+
+    return (Get-AzStorageAccountKey `
+        -ResourceGroupName $ResourceGroupName `
+        -Name $StorageAccountName `
+        -ErrorAction Stop)[0].Value
+}
+
+function Get-CanonicalizedResource {
+    param(
+        [string]$StorageAccountName,
+        [System.Uri]$Uri
+    )
+
+    $canonicalizedResource = "/" + $StorageAccountName + $Uri.AbsolutePath
+
+    if (-not [string]::IsNullOrWhiteSpace($Uri.Query)) {
+        $query = $Uri.Query.TrimStart("?")
+        $queryPairs = @{}
+
+        foreach ($part in ($query -split "&")) {
+            if ([string]::IsNullOrWhiteSpace($part)) {
+                continue
+            }
+
+            $split = $part -split "=", 2
+            $name = [System.Uri]::UnescapeDataString($split[0]).ToLowerInvariant()
+
+            if ($split.Count -gt 1) {
+                $value = [System.Uri]::UnescapeDataString($split[1])
+            }
+            else {
+                $value = ""
+            }
+
+            if (-not $queryPairs.ContainsKey($name)) {
+                $queryPairs[$name] = New-Object System.Collections.Generic.List[string]
+            }
+
+            $queryPairs[$name].Add($value)
+        }
+
+        foreach ($name in ($queryPairs.Keys | Sort-Object)) {
+            $values = $queryPairs[$name] | Sort-Object
+            $canonicalizedResource += "`n${name}:" + ($values -join ",")
+        }
+    }
+
+    return $canonicalizedResource
+}
+
+function New-StorageSharedKeyHeaders {
+    param(
+        [string]$Method,
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$Uri,
+        [string]$StorageApiVersion
+    )
+
+    $requestDate = [DateTime]::UtcNow.ToString("R", [Globalization.CultureInfo]::InvariantCulture)
+    $uriObject = [System.Uri]$Uri
+
+    $canonicalizedHeaders =
+        "x-ms-date:$requestDate`n" +
+        "x-ms-version:$StorageApiVersion`n"
+
+    $canonicalizedResource = Get-CanonicalizedResource `
+        -StorageAccountName $StorageAccountName `
+        -Uri $uriObject
+
+    $stringToSign =
+        $Method.ToUpperInvariant() + "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        "`n" +
+        $canonicalizedHeaders +
+        $canonicalizedResource
+
+    $keyBytes = [Convert]::FromBase64String($StorageAccountKey)
+    $messageBytes = [Text.Encoding]::UTF8.GetBytes($stringToSign)
+
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256
+    $hmac.Key = $keyBytes
+
+    $signature = [Convert]::ToBase64String($hmac.ComputeHash($messageBytes))
+
+    return @{
+        "x-ms-date"     = $requestDate
+        "x-ms-version"  = $StorageApiVersion
+        "Authorization" = "SharedKey ${StorageAccountName}:$signature"
+    }
+}
+
+function Invoke-AzureFileRest {
+    param(
+        [string]$Method,
+        [string]$Uri,
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$StorageApiVersion
+    )
+
+    $headers = New-StorageSharedKeyHeaders `
+        -Method $Method `
+        -StorageAccountName $StorageAccountName `
+        -StorageAccountKey $StorageAccountKey `
+        -Uri $Uri `
+        -StorageApiVersion $StorageApiVersion
+
+    return Invoke-WebRequest `
+        -Method $Method `
+        -Uri $Uri `
+        -Headers $headers `
+        -UseBasicParsing `
+        -ErrorAction Stop
+}
+
+################################################################################################################
+# AZURE FILES REST
+################################################################################################################
+
+function Get-AzureFileListUri {
+    param(
+        [string]$StorageAccountName,
+        [string]$ShareName,
+        [string]$DirectoryPath = "",
+        [string]$Marker = ""
+    )
+
+    $base = "https://$StorageAccountName.file.core.windows.net/$ShareName"
+
+    if (-not [string]::IsNullOrWhiteSpace($DirectoryPath)) {
+        $base += "/" + (ConvertTo-EscapedAzurePath -Path $DirectoryPath)
+    }
+
+    $query = "restype=directory&comp=list"
+
+    if (-not [string]::IsNullOrWhiteSpace($Marker)) {
+        $query += "&marker=" + [System.Uri]::EscapeDataString($Marker)
+    }
+
+    return "$base`?$query"
+}
+
+function Get-AzureFileUri {
+    param(
+        [string]$StorageAccountName,
+        [string]$ShareName,
+        [string]$FilePath
+    )
+
+    return "https://$StorageAccountName.file.core.windows.net/$ShareName/" + (ConvertTo-EscapedAzurePath -Path $FilePath)
+}
+
+function Get-AzureFileDirectoryItems {
+    param(
+        [string]$ShareName,
+        [string]$DirectoryPath = "",
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$StorageApiVersion
+    )
+
+    $allItems = New-Object System.Collections.Generic.List[object]
+    $marker = ""
+
+    do {
+        $uri = Get-AzureFileListUri `
+            -StorageAccountName $StorageAccountName `
+            -ShareName $ShareName `
+            -DirectoryPath $DirectoryPath `
+            -Marker $marker
+
+        $response = Invoke-AzureFileRest `
+            -Method "GET" `
+            -Uri $uri `
+            -StorageAccountName $StorageAccountName `
+            -StorageAccountKey $StorageAccountKey `
+            -StorageApiVersion $StorageApiVersion
+
+        $xml = ConvertTo-CleanXml -Content ([string]$response.Content)
+
+        if ($xml.EnumerationResults.Entries.Directory) {
+            foreach ($directory in $xml.EnumerationResults.Entries.Directory) {
+                $path = Join-FilePath -Parent $DirectoryPath -Child ([string]$directory.Name)
+
+                $allItems.Add([pscustomobject]@{
+                    Type = "Directory"
+                    Name = [string]$directory.Name
+                    Path = $path
+                })
+            }
+        }
+
+        if ($xml.EnumerationResults.Entries.File) {
+            foreach ($file in $xml.EnumerationResults.Entries.File) {
+                $path = Join-FilePath -Parent $DirectoryPath -Child ([string]$file.Name)
+
+                $allItems.Add([pscustomobject]@{
+                    Type = "File"
+                    Name = [string]$file.Name
+                    Path = $path
+                })
+            }
+        }
+
+        $marker = [string]$xml.EnumerationResults.NextMarker
+    }
+    while (-not [string]::IsNullOrWhiteSpace($marker))
+
+    return $allItems
+}
+
+function Get-AzureFileItemsRecursive {
+    param(
+        [string]$ShareName,
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$StorageApiVersion
     )
 
     $results = New-Object System.Collections.Generic.List[object]
-    $dirsToProcess = New-Object System.Collections.Generic.Queue[object]
+    $dirsToProcess = New-Object System.Collections.Generic.Queue[string]
 
-    $rootDir = Get-AzStorageFile -ShareName $ShareName -Path "." -Context $Context -ErrorAction Stop
-    $dirsToProcess.Enqueue($rootDir)
+    $dirsToProcess.Enqueue("")
 
     while ($dirsToProcess.Count -gt 0) {
         $currentDir = $dirsToProcess.Dequeue()
 
-        $children = $currentDir | Get-AzStorageFile -ErrorAction Stop
+        $items = Get-AzureFileDirectoryItems `
+            -ShareName $ShareName `
+            -DirectoryPath $currentDir `
+            -StorageAccountName $StorageAccountName `
+            -StorageAccountKey $StorageAccountKey `
+            -StorageApiVersion $StorageApiVersion
 
-        foreach ($child in $children) {
-            $results.Add($child)
+        foreach ($item in $items) {
+            $results.Add($item)
 
-            if ($child.GetType().Name -eq "AzureStorageFileDirectory") {
-                $dirsToProcess.Enqueue($child)
+            if ($item.Type -eq "Directory") {
+                $dirsToProcess.Enqueue($item.Path)
             }
         }
     }
@@ -200,77 +447,54 @@ function Get-ChildItemsRecursiveFromShare {
     return $results
 }
 
-function Get-ItemRelativePath {
+function Get-AzureFileLastModifiedUtc {
     param(
-        [Parameter(Mandatory = $true)]
-        [object]$Item
+        [string]$ShareName,
+        [string]$FilePath,
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$StorageApiVersion
     )
 
-    if ($Item.PSObject.Properties.Match("CloudFileDirectory").Count -gt 0 -and $Item.CloudFileDirectory) {
-        return [string]$Item.CloudFileDirectory.Name
-    }
+    $uri = Get-AzureFileUri `
+        -StorageAccountName $StorageAccountName `
+        -ShareName $ShareName `
+        -FilePath $FilePath
 
-    if ($Item.PSObject.Properties.Match("CloudFile").Count -gt 0 -and $Item.CloudFile) {
-        return [string]$Item.CloudFile.Name
-    }
+    $response = Invoke-AzureFileRest `
+        -Method "HEAD" `
+        -Uri $uri `
+        -StorageAccountName $StorageAccountName `
+        -StorageAccountKey $StorageAccountKey `
+        -StorageApiVersion $StorageApiVersion
 
-    if ($Item.PSObject.Properties.Match("ShareFileClient").Count -gt 0 -and $Item.ShareFileClient) {
-        return [string]$Item.ShareFileClient.Path
-    }
-
-    if ($Item.PSObject.Properties.Match("ShareDirectoryClient").Count -gt 0 -and $Item.ShareDirectoryClient) {
-        return [string]$Item.ShareDirectoryClient.Path
-    }
-
-    if ($Item.PSObject.Properties.Match("Name").Count -gt 0) {
-        return [string]$Item.Name
-    }
-
-    return ""
-}
-
-function Get-ItemLastModifiedUtc {
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Item
-    )
-
-    $candidates = @(
-        $Item.LastModified,
-        $Item.Properties.LastModified,
-        $Item.ListFileProperties.LastModified
-    ) | Where-Object { $null -ne $_ }
-
-    foreach ($candidate in $candidates) {
-        try {
-            return ([datetime]$candidate).ToUniversalTime()
-        }
-        catch {
-            continue
-        }
+    if ($response.Headers["Last-Modified"]) {
+        return ([datetime]$response.Headers["Last-Modified"]).ToUniversalTime()
     }
 
     return $null
 }
 
-function Remove-ShareFileByPath {
+function Remove-AzureFileByRest {
     param(
-        [Parameter(Mandatory = $true)]
         [string]$ShareName,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-
-        [Parameter(Mandatory = $true)]
-        [Microsoft.Azure.Commands.Common.Authentication.Abstractions.IStorageContext]$Context
+        [string]$FilePath,
+        [string]$StorageAccountName,
+        [string]$StorageAccountKey,
+        [string]$StorageApiVersion
     )
 
-    Remove-AzStorageFile `
+    $uri = Get-AzureFileUri `
+        -StorageAccountName $StorageAccountName `
         -ShareName $ShareName `
-        -Path $Path `
-        -Context $Context `
-        -Force `
-        -ErrorAction Stop | Out-Null
+        -FilePath $FilePath
+
+    Invoke-AzureFileRest `
+        -Method "DELETE" `
+        -Uri $uri `
+        -StorageAccountName $StorageAccountName `
+        -StorageAccountKey $StorageAccountKey `
+        -StorageApiVersion $StorageApiVersion | Out-Null
 }
 
 ################################################################################################################
@@ -299,8 +523,15 @@ catch {
 
 try {
     $SharesToProcess = Get-ShareList
-    $CutoffUtc       = (Get-Date).ToUniversalTime().AddDays(-$RetentionDays)
-    $StorageContext  = Get-StorageContextFromConnectedAccount -StorageAccountName $StorageAccountName
+    $CutoffUtc = (Get-Date).ToUniversalTime().AddDays(-$RetentionDays)
+
+    Write-Log "Retrieving storage account key"
+
+    $StorageAccountKey = Get-StorageAccountKeyValue `
+        -ResourceGroupName $ResourceGroupName `
+        -StorageAccountName $StorageAccountName
+
+    Write-Log "Storage account key retrieved successfully"
 
     Write-Log "Storage account: $StorageAccountName"
     Write-Log "Resource group: $ResourceGroupName"
@@ -336,20 +567,22 @@ foreach ($ShareName in $SharesToProcess) {
             SkippedNoLastModified = 0
         }
 
-        $items = Get-ChildItemsRecursiveFromShare `
+        $items = Get-AzureFileItemsRecursive `
             -ShareName $ShareName `
-            -Context $StorageContext
+            -StorageAccountName $StorageAccountName `
+            -StorageAccountKey $StorageAccountKey `
+            -StorageApiVersion $StorageApiVersion
 
-        $summary.EnumeratedItems = $items.Count
+        $summary.EnumeratedItems = ($items | Measure-Object).Count
 
-        $files = $items | Where-Object { $_.GetType().Name -eq "AzureStorageFile" }
+        $files = $items | Where-Object { $_.Type -eq "File" }
         $summary.EnumeratedFiles = ($files | Measure-Object).Count
 
         Write-Log "Enumerated items: $($summary.EnumeratedItems)" $ShareName
         Write-Log "Enumerated files: $($summary.EnumeratedFiles)" $ShareName
 
         foreach ($file in $files) {
-            $relativePath = Get-ItemRelativePath -Item $file
+            $relativePath = [string]$file.Path
 
             if ([string]::IsNullOrWhiteSpace($relativePath)) {
                 Write-Log "Skipping file because path could not be determined." $ShareName
@@ -366,7 +599,22 @@ foreach ($ShareName in $SharesToProcess) {
                 continue
             }
 
-            $lastModifiedUtc = Get-ItemLastModifiedUtc -Item $file
+            Write-Log ("Checking candidate file: {0}" -f $relativePath) $ShareName
+
+            try {
+                $lastModifiedUtc = Get-AzureFileLastModifiedUtc `
+                    -ShareName $ShareName `
+                    -FilePath $relativePath `
+                    -StorageAccountName $StorageAccountName `
+                    -StorageAccountKey $StorageAccountKey `
+                    -StorageApiVersion $StorageApiVersion
+            }
+            catch {
+                $summary.SkippedNoLastModified++
+                Write-Log "Skipping candidate because LastModified could not be determined: $relativePath" $ShareName
+                Write-Log ("LastModified lookup error: " + $_.Exception.Message) $ShareName
+                continue
+            }
 
             if ($null -eq $lastModifiedUtc) {
                 $summary.SkippedNoLastModified++
@@ -374,16 +622,17 @@ foreach ($ShareName in $SharesToProcess) {
                 continue
             }
 
+            Write-Log ("Last modified UTC discovered: {0}" -f $lastModifiedUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")) $ShareName
+
             if ($lastModifiedUtc -ge $CutoffUtc) {
+                Write-Log "Skipping candidate because it is newer than the cutoff: $relativePath" $ShareName
                 continue
             }
 
             $summary.CandidateFiles++
-
             $ageDays = [math]::Floor((((Get-Date).ToUniversalTime()) - $lastModifiedUtc).TotalDays)
 
             Write-Log ("Candidate found: {0}" -f $relativePath) $ShareName
-            Write-Log ("Last modified UTC: {0}" -f $lastModifiedUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")) $ShareName
             Write-Log ("Age in days: {0}" -f $ageDays) $ShareName
 
             if ($WhatIfMode) {
@@ -392,13 +641,15 @@ foreach ($ShareName in $SharesToProcess) {
             }
 
             try {
-                Remove-ShareFileByPath `
+                Remove-AzureFileByRest `
                     -ShareName $ShareName `
-                    -Path $relativePath `
-                    -Context $StorageContext
+                    -FilePath $relativePath `
+                    -StorageAccountName $StorageAccountName `
+                    -StorageAccountKey $StorageAccountKey `
+                    -StorageApiVersion $StorageApiVersion
 
                 $summary.DeletedFiles++
-                Write-Log "Deleted file successfully." $ShareName
+                Write-Log "Deleted file successfully: $relativePath" $ShareName
             }
             catch {
                 $summary.FailedDeletes++
@@ -427,9 +678,5 @@ foreach ($ShareName in $SharesToProcess) {
         Fail-Step "PROCESS_SHARE" $_ $ShareName
     }
 }
-
-################################################################################################################
-# COMPLETE
-################################################################################################################
 
 Write-Log "Runbook completed"
