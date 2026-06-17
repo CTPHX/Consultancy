@@ -1,9 +1,14 @@
 <#
  © Phoenix Software 2026
  Developed by Aiden Wright
- 1. Create Automation Account with managed Identiy
- 2. Create Custom Role that will be assigned to the AVD Subscription
- 2a. Roles to be Assigned;
+
+ Purpose
+ - This script will Clone an AVD Gold image, run sysprep and capture the iamge to an Azure Compute Gallery deffinition.
+
+ Zero Trust Role
+ - Create Automation Account with managed Identiy
+ - Create Custom Role that will be assigned to the AVD Subscription
+ - Roles to be Assigned;
  [
  "Microsoft.Resources/subscriptions/read",
  "Microsoft.Resources/subscriptions/resourceGroups/read",
