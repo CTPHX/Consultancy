@@ -15,6 +15,9 @@
 
 Required Roles
 - Storage Account Contributor to the Managed Identity - RG Level.
+
+Automation Variables
+"FSLogix-LastGrowTimesJson" & "FSLogix-ShrinkCountsJson" must be created in Automation Account as NON-ENCRYPTED variables
 #>
 
 
