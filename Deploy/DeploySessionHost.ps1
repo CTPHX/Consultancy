@@ -48,20 +48,20 @@ param(
 # Replace all placeholder values before use
 # ==========================================
 
-$SubscriptionId                    = "X-X-X-X"
+$SubscriptionId                    = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
 $Location                          = "uksouth"
 
 # Deployment configuration
-$JoinType                          = "ADDS"
-$HostPoolName                      = "vdpool-avd-prod-uks-desktops"
-$GalleryImageDefinitionName        = "WINDOWS11-EMS-Post"
+$JoinType                          = "ENTRA"
+$HostPoolName                      = "vdpool-avd-prod-uks-desktops01"
+$GalleryImageDefinitionName        = "WINDOWS11-EMS-Pre"
 
 $HostPoolResourceGroupName         = "rg-avd-hosts-uks"
 
 $SessionHostResourceGroupName      = "rg-avd-hosts-uks"
 
 $GalleryResourceGroupName          = "rg-avd-images-uks"
-$GalleryName                       = ""
+$GalleryName                       = "acgphxdzuks"
 
 $VirtualNetworkResourceGroupName   = "rg-avd-network-uks"
 $VirtualNetworkName                = "vnet-spoke-avd-uks"
@@ -69,18 +69,18 @@ $SubnetName                        = "snet-avd-internal-uks"
 
 $VmSize                            = "Standard_D2ds_v6"
 
-$KeyVaultName                      = ""
+$KeyVaultName                      = "kv-phxr-avd-uks-03"
 $LocalAdminUsernameSecretName      = "adm-local-upn"
 $LocalAdminPasswordSecretName      = "adm-local-pw"
 
 # ADDS join settings
-$DomainFqdn                        = ""
-$DomainOuPath                      = ""
+$DomainFqdn                        = "phoenixdemo.co.uk"
+$DomainOuPath                      = "OU=AJW,OU=AVD,DC=phoenixdemo,DC=co,DC=uk"
 $DomainJoinUsernameSecretName      = "domainjoin-upn"
 $DomainJoinPasswordSecretName      = "domainjoin-pw"
 
 # ENTRA join settings
-$TenantId                          = ""
+$TenantId                          = "fda40348-801d-44fd-a74e-cfc021cc50b1"
 $EnableIntuneEnrollment            = $true
 
 # Optional defaults
@@ -91,6 +91,9 @@ $RegistrationTokenHours            = 24
 $VmCreationThrottleSeconds         = 10
 $VmReadyTimeoutMinutes             = 25
 $RegistrationTimeoutMinutes        = 25
+$EntraJoinWaitTimeoutMinutes       = 15
+$EntraJoinWaitPollSeconds          = 30
+$RequireEntraDeviceAuthSuccess     = $true
 $Tags                              = @{
     "Workload"    = "AVD"
     "Environment" = "Prod"
@@ -688,13 +691,113 @@ function Join-SessionHostEntra {
         -ExtensionType 'AADLoginForWindows' `
         -Name 'AADLoginForWindows' `
         -TypeHandlerVersion '2.2' `
-        -EnableAutomaticUpgrade $true | Out-Null
+        -EnableAutomaticUpgrade $false | Out-Null
 
     Write-Log "Microsoft Entra sign-in extension applied to '$VmName'."
 
     if ($EnableIntuneEnrollment) {
         Write-Log "EnableIntuneEnrollment is set. Intune enrollment must be enabled by tenant-side MDM auto-enrollment configuration and licensing."
         Write-Log "This runbook does not force tenant enrollment policy; it assumes Intune auto-enrollment prerequisites are already configured."
+    }
+
+    $entraJoined = $false
+    Wait-ForEntraJoinCompletion `
+        -VmName $VmName `
+        -TimeoutMinutes $EntraJoinWaitTimeoutMinutes `
+        -PollSeconds $EntraJoinWaitPollSeconds `
+        -RequireDeviceAuthSuccess $RequireEntraDeviceAuthSuccess `
+        -Joined ([ref]$entraJoined)
+
+    if (-not $entraJoined) {
+        throw "VM '$VmName' did not complete Microsoft Entra join within the timeout. AVD agent installation has been stopped so the host does not register before Entra join is healthy."
+    }
+}
+
+
+function Wait-ForEntraJoinCompletion {
+    param(
+        [string]$VmName,
+        [int]$TimeoutMinutes = 15,
+        [int]$PollSeconds = 30,
+        [bool]$RequireDeviceAuthSuccess = $true,
+        [ref]$Joined
+    )
+
+    $Joined.Value = $false
+    $maxChecks = [math]::Ceiling(($TimeoutMinutes * 60) / $PollSeconds)
+
+    $checkScript = @'
+$ErrorActionPreference = 'SilentlyContinue'
+
+$status = dsregcmd /status 2>&1
+$statusText = ($status -join "`n")
+
+$azureAdJoined = 'UNKNOWN'
+$deviceAuthStatus = 'UNKNOWN'
+$mdmUrlPresent = 'UNKNOWN'
+
+if ($statusText -match 'AzureAdJoined\s*:\s*(\S+)') {
+    $azureAdJoined = $Matches[1]
+}
+
+if ($statusText -match 'DeviceAuthStatus\s*:\s*(\S+)') {
+    $deviceAuthStatus = $Matches[1]
+}
+
+if ($statusText -match 'MdmUrl\s*:\s*(\S+)') {
+    $mdmUrlPresent = if ([string]::IsNullOrWhiteSpace($Matches[1])) { 'NO' } else { 'YES' }
+}
+
+Write-Output "AVD_ENTRA_JOIN_AzureAdJoined=$azureAdJoined"
+Write-Output "AVD_ENTRA_JOIN_DeviceAuthStatus=$deviceAuthStatus"
+Write-Output "AVD_ENTRA_JOIN_MdmUrlPresent=$mdmUrlPresent"
+'@
+
+    Write-Log -Level 'INFO' -Component 'ENTRA' -Message ("Waiting for Microsoft Entra join to complete on '{0}' before installing the AVD agent. Timeout: {1} minute(s)." -f $VmName, $TimeoutMinutes)
+
+    for ($i = 1; $i -le $maxChecks; $i++) {
+        try {
+            $result = Invoke-AzVMRunCommand `
+                -ResourceGroupName $SessionHostResourceGroupName `
+                -VMName $VmName `
+                -CommandId 'RunPowerShellScript' `
+                -ScriptString $checkScript `
+                -ErrorAction Stop
+
+            $messages = @($result.Value | ForEach-Object { $_.Message }) -join "`n"
+
+            $azureAdJoined = 'UNKNOWN'
+            $deviceAuthStatus = 'UNKNOWN'
+            $mdmUrlPresent = 'UNKNOWN'
+
+            if ($messages -match 'AVD_ENTRA_JOIN_AzureAdJoined=(\S+)') {
+                $azureAdJoined = $Matches[1]
+            }
+
+            if ($messages -match 'AVD_ENTRA_JOIN_DeviceAuthStatus=(\S+)') {
+                $deviceAuthStatus = $Matches[1]
+            }
+
+            if ($messages -match 'AVD_ENTRA_JOIN_MdmUrlPresent=(\S+)') {
+                $mdmUrlPresent = $Matches[1]
+            }
+
+            Write-Log -Level 'INFO' -Component 'ENTRA' -Message ("Entra join check {0}/{1} for '{2}': AzureAdJoined={3}; DeviceAuthStatus={4}; MdmUrlPresent={5}" -f $i, $maxChecks, $VmName, $azureAdJoined, $deviceAuthStatus, $mdmUrlPresent)
+
+            $isAzureAdJoined = ($azureAdJoined -eq 'YES')
+            $isDeviceAuthOk = (-not $RequireDeviceAuthSuccess) -or ($deviceAuthStatus -eq 'SUCCESS')
+
+            if ($isAzureAdJoined -and $isDeviceAuthOk) {
+                Write-Log -Level 'SUCCESS' -Component 'ENTRA' -Message ("Microsoft Entra join completed on '{0}'." -f $VmName)
+                $Joined.Value = $true
+                return
+            }
+        }
+        catch {
+            Write-Log -Level 'WARN' -Component 'ENTRA' -Message ("Unable to check Entra join status on '{0}' yet: {1}" -f $VmName, $_.Exception.Message)
+        }
+
+        Start-Sleep -Seconds $PollSeconds
     }
 }
 
