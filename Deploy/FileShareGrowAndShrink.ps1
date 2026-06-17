@@ -49,26 +49,20 @@ $ShrinkTargetPercent    = 80
 $GrowByPercent          = 20
 
 # Safety / behaviour
-$ShrinkLockDays = 30
+$ShrinkLockDays = 1
 $MaxGrowthGiB   = 100
 $WhatIfMode     = $false
 
-# State variable names (must already exist in Automation as NON-ENCRYPTED variables)
+# State variable names
 $LastGrowTimesVariableName = "FSLogix-LastGrowTimesJson"
 $ShrinkCountsVariableName  = "FSLogix-ShrinkCountsJson"
 
 # Consecutive shrink tracking
 $ConsecutiveShrinkAlertThreshold = 3
 
-################################################################################################################
-# MODULES
-################################################################################################################
 Import-Module Az.Accounts
 Import-Module Az.Storage
 
-################################################################################################################
-# LOGGING
-################################################################################################################
 function Write-Log {
     param(
         [string]$Message,
@@ -115,9 +109,6 @@ function Fail-Step {
     throw $ErrorRecord
 }
 
-################################################################################################################
-# HELPERS
-################################################################################################################
 function Get-ShareLimits {
     param(
         [Parameter(Mandatory = $true)]
@@ -297,9 +288,6 @@ function Set-ConsecutiveShrinkCountForShare {
     $State[$ShareName] = $Count
 }
 
-################################################################################################################
-# AUTH
-################################################################################################################
 $ErrorActionPreference = "Stop"
 
 try {
@@ -314,9 +302,6 @@ catch {
     Fail-Step "AUTH" $_
 }
 
-################################################################################################################
-# INITIALISE
-################################################################################################################
 try {
     $ShareLimits = Get-ShareLimits -Model $ShareModel
     $SharesToProcess = Get-ShareList
@@ -336,9 +321,6 @@ catch {
     Fail-Step "INITIALISE" $_
 }
 
-################################################################################################################
-# PROCESS EACH SHARE
-################################################################################################################
 foreach ($ShareName in $SharesToProcess) {
     try {
         Write-Log "--------------------------------------------------------------------------------" $ShareName
@@ -373,9 +355,6 @@ foreach ($ShareName in $SharesToProcess) {
         Write-Log ("Current usage: {0:N2} GiB" -f $usedGiBExact) $ShareName
         Write-Log "Current utilization: $utilizationPercent%" $ShareName
 
-        ########################################################################################################
-        # SHRINK LOCK STATE
-        ########################################################################################################
         $nowUtc = (Get-Date).ToUniversalTime()
         $lastGrowTimeUtc = Get-LastGrowTimeUtcForShare -State $LastGrowTimesState -ShareName $ShareName
         $shrinkLockedUntilUtc = $null
@@ -405,9 +384,6 @@ foreach ($ShareName in $SharesToProcess) {
             Write-Log "Days remaining before shrinking is allowed again: 0" $ShareName
         }
 
-        ########################################################################################################
-        # DECISION
-        ########################################################################################################
         $action = "None"
         $requestedQuotaGiB = $currentQuotaGiB
         $reason = "Utilization is between thresholds; no change required."
@@ -430,10 +406,10 @@ foreach ($ShareName in $SharesToProcess) {
             else {
                 $calculatedShrinkTargetGiB = [int][math]::Ceiling($usedGiBExact / ($ShrinkTargetPercent / 100))
 
-                if ($calculatedShrinkTargetGiB -lt 100) {
-                    $action = "None"
-                    $requestedQuotaGiB = $currentQuotaGiB
-                    $reason = "Shrink skipped because calculated target quota ($calculatedShrinkTargetGiB GiB) would be less than 100 GiB."
+                if ($calculatedShrinkTargetGiB -lt $ShareLimits.MinQuotaGiB) {
+                    $action = "Shrink"
+                    $requestedQuotaGiB = $ShareLimits.MinQuotaGiB
+                    $reason = "Calculated shrink target ($calculatedShrinkTargetGiB GiB) is below minimum quota; shrinking to minimum quota of $($ShareLimits.MinQuotaGiB) GiB."
                 }
                 else {
                     $action = "Shrink"
@@ -458,9 +434,6 @@ foreach ($ShareName in $SharesToProcess) {
         Write-Log "Clamped target quota: $targetQuotaGiB GiB" $ShareName
         Write-Log "Projected utilization after change: $projectedUtilization%" $ShareName
 
-        ########################################################################################################
-        # APPLY
-        ########################################################################################################
         $resizeApplied = $false
 
         if ($action -eq "None") {
@@ -504,9 +477,6 @@ foreach ($ShareName in $SharesToProcess) {
             }
         }
 
-        ########################################################################################################
-        # CONSECUTIVE SHRINK TRACKING
-        ########################################################################################################
         $previousShrinkCount = Get-ConsecutiveShrinkCountForShare -State $ShrinkCountsState -ShareName $ShareName
         $currentShrinkCount = $previousShrinkCount
 
@@ -524,9 +494,6 @@ foreach ($ShareName in $SharesToProcess) {
             Set-ConsecutiveShrinkCountForShare -State $ShrinkCountsState -ShareName $ShareName -Count 0
         }
 
-        ########################################################################################################
-        # SUMMARY
-        ########################################################################################################
         $summary = "SUMMARY | Share=$ShareName | Action=$action | OldQuota=$oldQuotaGiB | NewQuota=$newQuotaGiB | UsedGiB=$([math]::Round($usedGiBExact,2)) | Util=$utilizationPercent | LockDaysRemaining=$lockDaysRemaining | ConsecutiveShrinks=$currentShrinkCount"
         Write-Output $summary
 
@@ -541,9 +508,6 @@ foreach ($ShareName in $SharesToProcess) {
     }
 }
 
-################################################################################################################
-# SAVE STATE
-################################################################################################################
 try {
     Save-StateHashtableToAutomationVariable -State $LastGrowTimesState -VariableName $LastGrowTimesVariableName
     Write-Log "Saved per-share growth state to Automation Variable '$LastGrowTimesVariableName'."
