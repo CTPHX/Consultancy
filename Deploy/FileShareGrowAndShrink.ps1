@@ -3,7 +3,7 @@
  © Phoenix Software 2026
  Developed by Aiden Wright
 
- Logic
+ Purpose/Logic
  - The script checks how full each Azure Files (FSLogix) share is.
  - If usage is above 85%, it grows the share by 20% (up to 100 GiB per run).
  - If usage is 70% or below, it shrinks the share to ~80% utilisation, but:
