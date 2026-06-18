@@ -48,11 +48,11 @@ param(
 # Replace all placeholder values before use
 # ==========================================
 
-$SubscriptionId                    = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
+$SubscriptionId                    = ""
 $Location                          = "uksouth"
 
 # Deployment configuration
-$JoinType                          = "ENTRA"
+$JoinType                          = "ADDS"
 $HostPoolName                      = "vdpool-avd-prod-uks-desktops01"
 $GalleryImageDefinitionName        = "WINDOWS11-EMS-Pre"
 
@@ -69,18 +69,18 @@ $SubnetName                        = "snet-avd-internal-uks"
 
 $VmSize                            = "Standard_D2ds_v6"
 
-$KeyVaultName                      = "kv-phxr-avd-uks-03"
+$KeyVaultName                      = "3"
 $LocalAdminUsernameSecretName      = "adm-local-upn"
 $LocalAdminPasswordSecretName      = "adm-local-pw"
 
 # ADDS join settings
-$DomainFqdn                        = "phoenixdemo.co.uk"
-$DomainOuPath                      = "OU=AJW,OU=AVD,DC=phoenixdemo,DC=co,DC=uk"
+$DomainFqdn                        = ""
+$DomainOuPath                      = ""
 $DomainJoinUsernameSecretName      = "domainjoin-upn"
 $DomainJoinPasswordSecretName      = "domainjoin-pw"
 
 # ENTRA join settings
-$TenantId                          = "fda40348-801d-44fd-a74e-cfc021cc50b1"
+$TenantId                          = ""
 $EnableIntuneEnrollment            = $True
 $IntuneMdmId                       = "0000000a-0000-0000-c000-000000000000"
 
