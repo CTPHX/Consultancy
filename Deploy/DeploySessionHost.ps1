@@ -81,7 +81,8 @@ $DomainJoinPasswordSecretName      = "domainjoin-pw"
 
 # ENTRA join settings
 $TenantId                          = "fda40348-801d-44fd-a74e-cfc021cc50b1"
-$EnableIntuneEnrollment            = $true
+$EnableIntuneEnrollment            = $True
+$IntuneMdmId                       = "0000000a-0000-0000-c000-000000000000"
 
 # Optional defaults
 $DrainModeBeforeDelete             = $false
@@ -174,6 +175,10 @@ function Test-JoinConfiguration {
     if ($JoinType -eq 'ENTRA') {
         if ([string]::IsNullOrWhiteSpace($TenantId)) {
             Write-Log "TenantId not supplied. Proceeding, but explicit tenant-oriented validation is limited."
+        }
+
+        if ($EnableIntuneEnrollment -and [string]::IsNullOrWhiteSpace($IntuneMdmId)) {
+            throw "EnableIntuneEnrollment is true, but IntuneMdmId is empty."
         }
     }
 }
@@ -613,7 +618,10 @@ function New-SessionHostVm {
         -Force
 
     Write-Log "Building VM config for '$VmName'..."
-    $vmConfig = New-AzVMConfig -VMName $VmName -VMSize $VmSize
+    $vmConfig = New-AzVMConfig `
+        -VMName $VmName `
+        -VMSize $VmSize `
+        -IdentityType SystemAssigned
     $vmConfig = Set-AzVMOperatingSystem `
         -VM $vmConfig `
         -Windows `
@@ -683,21 +691,44 @@ function Join-SessionHostEntra {
     )
 
     Write-Log "Enabling Microsoft Entra sign-in extension on '$VmName'..."
-    Set-AzVMExtension `
-        -ResourceGroupName $SessionHostResourceGroupName `
-        -VMName $VmName `
-        -Location $Location `
-        -Publisher 'Microsoft.Azure.ActiveDirectory' `
-        -ExtensionType 'AADLoginForWindows' `
-        -Name 'AADLoginForWindows' `
-        -TypeHandlerVersion '2.2' `
-        -EnableAutomaticUpgrade $false | Out-Null
+
+    if ($EnableIntuneEnrollment) {
+        Write-Log -Level 'INFO' -Component 'ENTRA' -Message ("Intune enrollment is enabled for Entra join. AADLoginForWindows mdmId will be set to '{0}'." -f $IntuneMdmId)
+
+        $aadLoginSettings = @{
+            mdmId = $IntuneMdmId
+        }
+
+        Set-AzVMExtension `
+            -ResourceGroupName $SessionHostResourceGroupName `
+            -VMName $VmName `
+            -Location $Location `
+            -Publisher 'Microsoft.Azure.ActiveDirectory' `
+            -ExtensionType 'AADLoginForWindows' `
+            -Name 'AADLoginForWindows' `
+            -TypeHandlerVersion '2.2' `
+            -SettingString ($aadLoginSettings | ConvertTo-Json -Compress) `
+            -EnableAutomaticUpgrade $false | Out-Null
+    }
+    else {
+        Write-Log -Level 'INFO' -Component 'ENTRA' -Message "Intune enrollment is disabled for Entra join. AADLoginForWindows will be applied without extension settings."
+
+        Set-AzVMExtension `
+            -ResourceGroupName $SessionHostResourceGroupName `
+            -VMName $VmName `
+            -Location $Location `
+            -Publisher 'Microsoft.Azure.ActiveDirectory' `
+            -ExtensionType 'AADLoginForWindows' `
+            -Name 'AADLoginForWindows' `
+            -TypeHandlerVersion '2.2' `
+            -EnableAutomaticUpgrade $false | Out-Null
+    }
 
     Write-Log "Microsoft Entra sign-in extension applied to '$VmName'."
 
     if ($EnableIntuneEnrollment) {
-        Write-Log "EnableIntuneEnrollment is set. Intune enrollment must be enabled by tenant-side MDM auto-enrollment configuration and licensing."
-        Write-Log "This runbook does not force tenant enrollment policy; it assumes Intune auto-enrollment prerequisites are already configured."
+        Write-Log "EnableIntuneEnrollment is set. The AADLoginForWindows extension was applied with the Intune mdmId setting."
+        Write-Log "Tenant-side MDM auto-enrollment configuration and licensing must still be valid for Intune enrollment to complete."
     }
 
     $entraJoined = $false
@@ -901,6 +932,7 @@ try {
 
     Write-StepBanner -Message 'DEPLOYMENT PLAN'
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("JoinType           : {0}" -f $JoinType)
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Enable Intune     : {0}" -f ([bool]$EnableIntuneEnrollment))
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Host pool          : {0}" -f $HostPoolName)
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("VM prefix          : {0}" -f $VmNamePrefix)
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Requested hosts    : {0}" -f $SessionHostCount)
