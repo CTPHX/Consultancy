@@ -34,13 +34,13 @@ $latestImage = Get-AzGalleryImageVersion -ResourceGroupName $sourceResourceGroup
                 Sort-Object -Property Name -Descending | Select-Object -First 1
 
 if ($latestImage -eq $null) {
-    Write-Host "No image versions found in the source gallery. Exiting."
+   Write-Output "No image versions found in the source gallery. Exiting."
     exit
 }
 
 $sourceImageVersion = $latestImage.Name
 $sourceImageId = $latestImage.Id
-Write-Host "Found latest image version: $sourceImageVersion"
+Write-Output "Found latest image version: $sourceImageVersion"
 
 # Check if the image version already exists in the target ACG
 $existingTargetImage = Get-AzGalleryImageVersion -ResourceGroupName $targetResourceGroup `
@@ -50,11 +50,11 @@ $existingTargetImage = Get-AzGalleryImageVersion -ResourceGroupName $targetResou
                       Where-Object { $_.Name -eq $sourceImageVersion }
 
 if ($existingTargetImage) {
-    Write-Host "Image version $sourceImageVersion already exists in $targetGalleryName. Skipping copy."
+   Write-Output "Image version $sourceImageVersion already exists in $targetGalleryName. Skipping copy."
     exit
 }
 
-Write-Host "Replicating image version $sourceImageVersion to $targetGalleryName..."
+Write-Output "Replicating image version $sourceImageVersion to $targetGalleryName..."
 
 $regions = @(
     @{Name="uksouth"; ReplicaCount=1},
@@ -70,4 +70,4 @@ New-AzGalleryImageVersion -ResourceGroupName $targetResourceGroup `
                           -SourceImageId $sourceImageId `
                           -TargetRegion $regions
 
-Write-Host "Image version $sourceImageVersion successfully replicated to $targetGalleryName in $locationTarget!"
+Write-Output "Image version $sourceImageVersion successfully replicated to $targetGalleryName in $locationTarget!"
