@@ -1,0 +1,67 @@
+# THIS IS RUN WITHIN Cloud Bash in Azure
+
+
+SUBSCRIPTION_ID=""
+
+SOURCE_RG="rg-"
+SOURCE_NSG="nsg-"
+
+TARGET_RG="rg-"
+TARGET_LOCATION="ukwest"
+TARGET_NSG="nsg-"
+
+az account set --subscription "$SUBSCRIPTION_ID"
+
+az network nsg show -g "$TARGET_RG" -n "$TARGET_NSG" >/dev/null 2>&1 || \
+az network nsg create \
+  -g "$TARGET_RG" \
+  -n "$TARGET_NSG" \
+  -l "$TARGET_LOCATION"
+
+az network nsg rule list \
+  -g "$SOURCE_RG" \
+  --nsg-name "$SOURCE_NSG" \
+  -o json > rules.json
+
+echo "Rules exported:"
+jq 'length' rules.json
+
+jq -c '.[]' rules.json | while read -r rule; do
+  NAME=$(echo "$rule" | jq -r '.name')
+  echo "Creating/updating rule: $NAME"
+
+  echo "$rule" | jq '
+    {
+      properties: {
+        description: .description,
+        protocol: .protocol,
+        sourcePortRange: .sourcePortRange,
+        destinationPortRange: .destinationPortRange,
+        sourcePortRanges: .sourcePortRanges,
+        destinationPortRanges: .destinationPortRanges,
+        sourceAddressPrefix: .sourceAddressPrefix,
+        destinationAddressPrefix: .destinationAddressPrefix,
+        sourceAddressPrefixes: .sourceAddressPrefixes,
+        destinationAddressPrefixes: .destinationAddressPrefixes,
+        sourceApplicationSecurityGroups: .sourceApplicationSecurityGroups,
+        destinationApplicationSecurityGroups: .destinationApplicationSecurityGroups,
+        access: .access,
+        priority: .priority,
+        direction: .direction
+      }
+    }
+    | walk(if type == "object" then with_entries(select(.value != null and .value != [])) else . end)
+  ' > rule.json
+
+  az rest \
+    --method put \
+    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$TARGET_RG/providers/Microsoft.Network/networkSecurityGroups/$TARGET_NSG/securityRules/$NAME?api-version=2023-09-01" \
+    --body @rule.json
+done
+
+echo "Copied rules:"
+az network nsg rule list \
+  -g "$TARGET_RG" \
+  --nsg-name "$TARGET_NSG" \
+  --query "[].{Name:name,Priority:priority,Direction:direction,Access:access,Protocol:protocol}" \
+  -o table
