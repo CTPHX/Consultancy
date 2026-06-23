@@ -35,9 +35,9 @@ $ShareNames = @(
 )
 
 $TargetExtension = ".vhdx"
-$RetentionDays   = 0
+$RetentionDays   = 30
 
-$WhatIfMode              = $truse
+$WhatIfMode              = $true
 $DeleteEmptyDirectories  = $true
 $ContinueOnDeleteFailure = $true
 $ExcludedPathFragments   = @()
