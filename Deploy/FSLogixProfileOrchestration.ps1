@@ -14,6 +14,8 @@
  - 'Automation Job Operator' at the storage account level.
  - 'AZ Module' on the Hybrid Worker VM
  - 'Storage Account Contributor' and 'SMB Contributor' at the storage account on the VM Managed Identity
+ - 'Microsoft.Storage' Service Endpoint on the Subnet where the Hybrid Worker Vm resides(If no private endpoint)
+ - Private Endpooints set up or Hybrid Worker subnet allowed through Storage Account Firewell.
 #>
 
 ################################################################################################################
