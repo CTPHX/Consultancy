@@ -1,7 +1,4 @@
 <#
-© Phoenix Software 2026
-Developed by Aiden Wright
-
 .SYNOPSIS
 AVD production deployment runbook for Azure Automation.
 
@@ -23,13 +20,6 @@ NOTES
 - Local admin credentials are read from Key Vault.
 - ADDS join credentials are read from Key Vault when JoinType = ADDS.
 - This runbook is intended for Azure Automation with a managed identity.
-
-Managed Identity Requirements
-- Virtual Machine Contributor
-- Network Contributor
-- Desktop Virtualization Host Pool Contributor
-- Key Vault Secrets User
-- Reader
 #>
 
 param(
@@ -43,17 +33,19 @@ param(
     [bool]$OverwriteExisting = $false
 )
 
+
+
 # ==========================================
 # ENVIRONMENT CONFIG - PROD
 # Replace all placeholder values before use
 # ==========================================
 
-$SubscriptionId                    = ""
+$SubscriptionId                    = "X-X-X-X"
 $Location                          = "uksouth"
 
 # Deployment configuration
 $JoinType                          = "ADDS"
-$HostPoolName                      = "vdpool-avd-prod-uks-desktops01"
+$HostPoolName                      = "vdpool-avd-prod-uks-desktops"
 $GalleryImageDefinitionName        = "WINDOWS11-EMS-Pre"
 
 $HostPoolResourceGroupName         = "rg-avd-hosts-uks"
@@ -61,7 +53,7 @@ $HostPoolResourceGroupName         = "rg-avd-hosts-uks"
 $SessionHostResourceGroupName      = "rg-avd-hosts-uks"
 
 $GalleryResourceGroupName          = "rg-avd-images-uks"
-$GalleryName                       = "acgphxdzuks"
+$GalleryName                       = ""
 
 $VirtualNetworkResourceGroupName   = "rg-avd-network-uks"
 $VirtualNetworkName                = "vnet-spoke-avd-uks"
@@ -69,18 +61,18 @@ $SubnetName                        = "snet-avd-internal-uks"
 
 $VmSize                            = "Standard_D2ds_v6"
 
-$KeyVaultName                      = "3"
+$KeyVaultName                      = ""
 $LocalAdminUsernameSecretName      = "adm-local-upn"
 $LocalAdminPasswordSecretName      = "adm-local-pw"
 
 # ADDS join settings
-$DomainFqdn                        = ""
-$DomainOuPath                      = ""
+$DomainFqdn                        = "domain.local"
+$DomainOuPath                      = "OU="
 $DomainJoinUsernameSecretName      = "domainjoin-upn"
 $DomainJoinPasswordSecretName      = "domainjoin-pw"
 
 # ENTRA join settings
-$TenantId                          = ""
+$TenantId                          = "X-X-X-X"
 $EnableIntuneEnrollment            = $True
 $IntuneMdmId                       = "0000000a-0000-0000-c000-000000000000"
 
@@ -95,6 +87,7 @@ $RegistrationTimeoutMinutes        = 25
 $EntraJoinWaitTimeoutMinutes       = 15
 $EntraJoinWaitPollSeconds          = 30
 $RequireEntraDeviceAuthSuccess     = $true
+$TemporarilyDisableScalingDuringDeployment = $true
 $Tags                              = @{
     "Workload"    = "AVD"
     "Environment" = "Prod"
@@ -902,13 +895,183 @@ Write-Output 'AVD agent and bootloader installation complete.'
     $result.Value | ForEach-Object { Write-Output $_.Message }
 }
 
+function Get-ScalingPlansAttachedToHostPool {
+    param(
+        [string]$HostPoolArmPath
+    )
+
+    $attachedScalingPlans = @()
+
+    Write-Log -Level 'INFO' -Component 'SCALING' -Message "Checking for scaling plans attached to host pool '$HostPoolName'..."
+
+    $scalingPlanResources = Get-AzResource `
+        -ResourceType 'Microsoft.DesktopVirtualization/scalingPlans' `
+        -ErrorAction SilentlyContinue
+
+    if (-not $scalingPlanResources) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message 'No scaling plans were found in the current subscription.'
+        return @()
+    }
+
+    foreach ($resource in $scalingPlanResources) {
+        try {
+            $plan = Get-AzWvdScalingPlan `
+                -ResourceGroupName $resource.ResourceGroupName `
+                -Name $resource.Name `
+                -ErrorAction Stop
+
+            $matchingReference = @($plan.HostPoolReference | Where-Object {
+                $_.HostPoolArmPath -eq $HostPoolArmPath
+            })
+
+            foreach ($reference in $matchingReference) {
+                $attachedScalingPlans += [pscustomobject]@{
+                    Name              = $plan.Name
+                    ResourceGroupName = $resource.ResourceGroupName
+                    HostPoolArmPath   = $reference.HostPoolArmPath
+                    OriginalEnabled   = [bool]$reference.ScalingPlanEnabled
+                    Plan              = $plan
+                }
+            }
+        }
+        catch {
+            Write-Log -Level 'WARN' -Component 'SCALING' -Message ("Could not inspect scaling plan '{0}' in resource group '{1}': {2}" -f $resource.Name, $resource.ResourceGroupName, $_.Exception.Message)
+        }
+    }
+
+    if (-not $attachedScalingPlans) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message "No scaling plan is attached to host pool '$HostPoolName'."
+    }
+
+    return @($attachedScalingPlans)
+}
+
+function Set-ScalingPlanHostPoolReferenceState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScalingPlanName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ScalingPlanResourceGroupName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$HostPoolArmPath,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$Enabled
+    )
+
+    $plan = Get-AzWvdScalingPlan `
+        -ResourceGroupName $ScalingPlanResourceGroupName `
+        -Name $ScalingPlanName
+
+    $updatedReferences = @()
+    $changed = $false
+
+    foreach ($reference in $plan.HostPoolReference) {
+        if ($reference.HostPoolArmPath -eq $HostPoolArmPath) {
+            if ([bool]$reference.ScalingPlanEnabled -ne $Enabled) {
+                $reference.ScalingPlanEnabled = $Enabled
+                $changed = $true
+            }
+        }
+
+        $updatedReferences += $reference
+    }
+
+    if (-not $changed) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message ("Scaling plan '{0}' host pool reference is already Enabled={1}." -f $ScalingPlanName, $Enabled)
+        return
+    }
+
+    Update-AzWvdScalingPlan `
+        -ResourceGroupName $ScalingPlanResourceGroupName `
+        -Name $ScalingPlanName `
+        -HostPoolReference $updatedReferences | Out-Null
+
+    Write-Log -Level 'SUCCESS' -Component 'SCALING' -Message ("Scaling plan '{0}' host pool reference updated to Enabled={1}." -f $ScalingPlanName, $Enabled)
+}
+
+function Disable-EnabledScalingPlansForDeployment {
+    param(
+        [string]$HostPoolArmPath,
+        [ref]$ScalingPlansToReenable
+    )
+
+    Write-StepBanner -Message 'SCALING PLAN CHECK'
+
+    $ScalingPlansToReenable.Value = @()
+
+    if (-not [bool]$TemporarilyDisableScalingDuringDeployment) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message 'TemporarilyDisableScalingDuringDeployment is False. Scaling plan state will not be changed.'
+        return
+    }
+
+    $attachedScalingPlans = @(Get-ScalingPlansAttachedToHostPool -HostPoolArmPath $HostPoolArmPath)
+
+    if (-not $attachedScalingPlans) {
+        return
+    }
+
+    foreach ($attachedScalingPlan in $attachedScalingPlans) {
+        if (-not [bool]$attachedScalingPlan.OriginalEnabled) {
+            Write-Log -Level 'INFO' -Component 'SCALING' -Message ("Scaling plan '{0}' is attached but already disabled for this host pool. Leaving it disabled." -f $attachedScalingPlan.Name)
+            continue
+        }
+
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message ("Scaling plan '{0}' is enabled for this host pool. Temporarily disabling it before deployment." -f $attachedScalingPlan.Name)
+
+        Set-ScalingPlanHostPoolReferenceState `
+            -ScalingPlanName $attachedScalingPlan.Name `
+            -ScalingPlanResourceGroupName $attachedScalingPlan.ResourceGroupName `
+            -HostPoolArmPath $HostPoolArmPath `
+            -Enabled $false
+
+        $ScalingPlansToReenable.Value += $attachedScalingPlan
+    }
+}
+
+function Restore-ScalingPlansAfterDeployment {
+    param(
+        [string]$HostPoolArmPath,
+        [object[]]$ScalingPlansToReenable
+    )
+
+    if (-not [bool]$TemporarilyDisableScalingDuringDeployment) {
+        return
+    }
+
+    if (-not $ScalingPlansToReenable -or $ScalingPlansToReenable.Count -eq 0) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message 'No scaling plans were disabled by this run, so none will be re-enabled.'
+        return
+    }
+
+    Write-StepBanner -Message 'RESTORE SCALING PLAN'
+
+    foreach ($scalingPlan in $ScalingPlansToReenable) {
+        Write-Log -Level 'INFO' -Component 'SCALING' -Message ("Re-enabling scaling plan '{0}' for host pool '{1}'." -f $scalingPlan.Name, $HostPoolName)
+
+        Set-ScalingPlanHostPoolReferenceState `
+            -ScalingPlanName $scalingPlan.Name `
+            -ScalingPlanResourceGroupName $scalingPlan.ResourceGroupName `
+            -HostPoolArmPath $HostPoolArmPath `
+            -Enabled $true
+    }
+}
+
 try {
     Connect-RunbookAz
     Test-JoinConfiguration
 
     Write-StepBanner -Message 'VALIDATION'
     Write-Log -Level 'INFO' -Component 'VALIDATION' -Message "Validating host pool..."
-    Get-AzWvdHostPool -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolName | Out-Null
+    $hostPool = Get-AzWvdHostPool -ResourceGroupName $HostPoolResourceGroupName -Name $HostPoolName
+    $hostPoolArmPath = $hostPool.Id
+
+    $scalingPlansToReenable = @()
+    Disable-EnabledScalingPlansForDeployment `
+        -HostPoolArmPath $hostPoolArmPath `
+        -ScalingPlansToReenable ([ref]$scalingPlansToReenable)
 
     Write-Log -Level 'INFO' -Component 'KEYVAULT' -Message "Retrieving local admin credential from Key Vault '$KeyVaultName'..."
     $localAdminCredential = Get-PSCredentialFromKeyVault `
@@ -937,6 +1100,7 @@ try {
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("VM prefix          : {0}" -f $VmNamePrefix)
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Requested hosts    : {0}" -f $SessionHostCount)
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("OverwriteExisting  : {0}" -f ([bool]$OverwriteExisting))
+    Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Temp disable scaling: {0}" -f ([bool]$TemporarilyDisableScalingDuringDeployment))
     Write-Log -Level 'INFO' -Component 'PLAN' -Message ("Existing host count: {0}" -f $existingHostCount)
 
     if ($existingHostCount -gt 0) {
@@ -1021,6 +1185,10 @@ try {
             Start-Sleep -Seconds $VmCreationThrottleSeconds
         }
     }
+
+    Restore-ScalingPlansAfterDeployment `
+        -HostPoolArmPath $hostPoolArmPath `
+        -ScalingPlansToReenable $scalingPlansToReenable
 
     Write-StepBanner -Message 'COMPLETE'
     Write-Log -Level 'SUCCESS' -Component 'RUNBOOK' -Message "Runbook completed successfully."
