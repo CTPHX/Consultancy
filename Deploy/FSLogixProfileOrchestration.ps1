@@ -9,6 +9,9 @@
  - Starts the FSLogix cleanup runbook on the Hybrid Worker Group
  - Waits for completion
  - Stops/deallocates the Hybrid Worker VM(s)
+
+ Requirments
+ - 'Automation Job Operator' at the storage account level.
 #>
 
 ################################################################################################################
