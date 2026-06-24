@@ -10,8 +10,10 @@
  - Waits for completion
  - Stops/deallocates the Hybrid Worker VM(s)
 
- Requirments
+ Requirements
  - 'Automation Job Operator' at the storage account level.
+ - 'AZ Module' on the Hybrid Worker VM
+ - 'Storage Account Contributor' and 'SMB Contributor' at the storage account on the VM Managed Identity
 #>
 
 ################################################################################################################
