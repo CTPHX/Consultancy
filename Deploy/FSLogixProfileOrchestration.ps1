@@ -22,7 +22,7 @@
 # CONFIGURATION
 ################################################################################################################
 
-$SubscriptionId        = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
+$SubscriptionId        = ""
 $AutomationAccountName = "aa-avd-prod-uks-001"
 $AutomationRG          = "rg-avd-management-uks"
 $HybridWorkerGroupName = "hybrid-worker-avd"
