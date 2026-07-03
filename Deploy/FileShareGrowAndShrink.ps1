@@ -49,7 +49,7 @@ $ShrinkTargetPercent    = 80
 $GrowByPercent          = 20
 
 # Safety / behaviour
-$ShrinkLockDays = 1
+$ShrinkLockDays = 30
 $MaxGrowthGiB   = 100
 $WhatIfMode     = $false
 
