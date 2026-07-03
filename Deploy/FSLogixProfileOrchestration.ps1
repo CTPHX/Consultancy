@@ -22,25 +22,27 @@
 # CONFIGURATION
 ################################################################################################################
 
-$SubscriptionId        = "YOUR-SUBSCRIPTION-ID"
-$AutomationAccountName = "YOUR-AUTOMATION-ACCOUNT-NAME"
-$AutomationRG          = "YOUR-AUTOMATION-RESOURCE-GROUP"
+$SubscriptionId        = "8ba57a2b-1690-4bee-9e48-6b3d70fd325f"
+$AutomationAccountName = "aa-avd-prod-uks-001"
+$AutomationRG          = "rg-avd-management-uks"
 $HybridWorkerGroupName = "hybrid-worker-avd"
 $ChildRunbookName      = "FslogixLegacyProfiledeletion"
 
 $VmTagName  = "SundayAutomation"
 $VmTagValue = "Yes"
 
-$VmStartTimeoutSeconds = 900
+$VmStartTimeoutSeconds     = 900
 $HybridWorkerWarmupSeconds = 300
-$JobPollSeconds = 30
+$JobPollSeconds            = 30
 
 ################################################################################################################
 # LOGGING
 ################################################################################################################
 
 function Write-Log {
-    param([string]$Message)
+    param(
+        [string]$Message
+    )
 
     Write-Output ("[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message)
 }
@@ -66,6 +68,49 @@ function Fail-Step {
 
     Write-Log "================ ERROR END =================="
     throw $ErrorRecord
+}
+
+################################################################################################################
+# HELPER - GET VM POWER STATE
+################################################################################################################
+
+function Get-VMRunningState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $vm = Get-AzVM `
+        -ResourceGroupName $ResourceGroupName `
+        -Name $Name `
+        -Status `
+        -ErrorAction Stop
+
+    $powerState = $vm.Statuses | Where-Object {
+        $_.Code -like "PowerState/*"
+    } | Select-Object -First 1
+
+    $result = [PSCustomObject]@{
+        VmName              = $vm.Name
+        ResourceGroupName   = $ResourceGroupName
+        PowerStateCode      = $null
+        PowerStateDisplay   = $null
+        IsRunning           = $false
+    }
+
+    if ($null -ne $powerState) {
+        $result.PowerStateCode    = $powerState.Code
+        $result.PowerStateDisplay = $powerState.DisplayStatus
+
+        if ($powerState.Code -eq "PowerState/running" -or $powerState.DisplayStatus -eq "VM running") {
+            $result.IsRunning = $true
+        }
+    }
+
+    return $result
 }
 
 ################################################################################################################
@@ -95,7 +140,7 @@ catch {
 try {
     Write-Log "Searching for VMs tagged $VmTagName=$VmTagValue"
 
-    $vms = @(Get-AzVM -Status | Where-Object {
+    $vms = @(Get-AzVM -Status -ErrorAction Stop | Where-Object {
         $_.Tags.ContainsKey($VmTagName) -and $_.Tags[$VmTagName] -eq $VmTagValue
     })
 
@@ -106,7 +151,19 @@ try {
     Write-Log "Found $($vms.Count) VM(s)"
 
     foreach ($vm in $vms) {
-        Write-Log "Matched VM: $($vm.Name), RG: $($vm.ResourceGroupName), State: $($vm.PowerState)"
+        $powerState = $vm.Statuses | Where-Object {
+            $_.Code -like "PowerState/*"
+        } | Select-Object -First 1
+
+        $displayState = $null
+        $codeState = $null
+
+        if ($null -ne $powerState) {
+            $displayState = $powerState.DisplayStatus
+            $codeState = $powerState.Code
+        }
+
+        Write-Log "Matched VM: $($vm.Name), RG: $($vm.ResourceGroupName), StateCode: $codeState, StateDisplay: $displayState"
     }
 }
 catch {
@@ -119,10 +176,20 @@ catch {
 
 try {
     try {
+        ########################################################################################################
+        # START HYBRID WORKER VM(S)
+        ########################################################################################################
+
         Write-Log "Starting Hybrid Worker VM(s)"
 
         foreach ($vm in $vms) {
-            if ($vm.PowerState -eq "VM running") {
+            $state = Get-VMRunningState `
+                -ResourceGroupName $vm.ResourceGroupName `
+                -Name $vm.Name
+
+            Write-Log "Current VM state before start: $($state.VmName) = Code: $($state.PowerStateCode), DisplayStatus: $($state.PowerStateDisplay)"
+
+            if ($state.IsRunning) {
                 Write-Log "VM already running: $($vm.Name)"
                 continue
             }
@@ -136,6 +203,10 @@ try {
                 -ErrorAction Stop
         }
 
+        ########################################################################################################
+        # WAIT FOR VM(S) TO BE RUNNING
+        ########################################################################################################
+
         Write-Log "Waiting for VM(s) to reach running state"
 
         $elapsed = 0
@@ -147,20 +218,22 @@ try {
             $runningCount = 0
 
             foreach ($vm in $vms) {
-                $currentVm = Get-AzVM `
+                $state = Get-VMRunningState `
                     -ResourceGroupName $vm.ResourceGroupName `
-                    -Name $vm.Name `
-                    -Status `
-                    -ErrorAction Stop
+                    -Name $vm.Name
 
-                Write-Log "VM state: $($currentVm.Name) = $($currentVm.PowerState)"
+                Write-Log "VM state: $($state.VmName) = Code: $($state.PowerStateCode), DisplayStatus: $($state.PowerStateDisplay)"
 
-                if ($currentVm.PowerState -eq "VM running") {
+                if ($state.IsRunning) {
                     $runningCount++
+                }
+                elseif ([string]::IsNullOrWhiteSpace($state.PowerStateCode)) {
+                    Write-Log "WARNING: No PowerState returned for VM: $($state.VmName)"
                 }
             }
 
             Write-Log "Running VM count: $runningCount of $($vms.Count)"
+            Write-Log "Elapsed wait time: $elapsed seconds of $VmStartTimeoutSeconds seconds"
 
         } while ($runningCount -lt $vms.Count -and $elapsed -lt $VmStartTimeoutSeconds)
 
@@ -169,8 +242,17 @@ try {
         }
 
         Write-Log "Hybrid Worker VM(s) are running"
+
+        ########################################################################################################
+        # WAIT FOR HYBRID WORKER SERVICE
+        ########################################################################################################
+
         Write-Log "Waiting $HybridWorkerWarmupSeconds seconds for Hybrid Worker service availability"
         Start-Sleep -Seconds $HybridWorkerWarmupSeconds
+
+        ########################################################################################################
+        # START CHILD RUNBOOK ON HYBRID WORKER GROUP
+        ########################################################################################################
 
         Write-Log "Starting child runbook '$ChildRunbookName' on Hybrid Worker Group '$HybridWorkerGroupName'"
 
@@ -183,6 +265,10 @@ try {
 
         Write-Log "Child runbook job started. JobId: $($job.JobId)"
 
+        ########################################################################################################
+        # WAIT FOR CHILD RUNBOOK COMPLETION
+        ########################################################################################################
+
         do {
             Start-Sleep -Seconds $JobPollSeconds
 
@@ -194,7 +280,13 @@ try {
 
             Write-Log "Child runbook status: $($jobStatus.Status)"
 
-        } while ($jobStatus.Status -in @("New", "Activating", "Queued", "Running", "Resuming"))
+        } while ($jobStatus.Status -in @(
+            "New",
+            "Activating",
+            "Queued",
+            "Running",
+            "Resuming"
+        ))
 
         if ($jobStatus.Status -ne "Completed") {
             throw "Child runbook finished with status: $($jobStatus.Status)"
@@ -203,10 +295,25 @@ try {
         Write-Log "Child runbook completed successfully"
     }
     finally {
+        ########################################################################################################
+        # STOP / DEALLOCATE HYBRID WORKER VM(S)
+        ########################################################################################################
+
         Write-Log "Stopping/deallocating Hybrid Worker VM(s)"
 
         foreach ($vm in $vms) {
             try {
+                $state = Get-VMRunningState `
+                    -ResourceGroupName $vm.ResourceGroupName `
+                    -Name $vm.Name
+
+                Write-Log "Current VM state before stop: $($state.VmName) = Code: $($state.PowerStateCode), DisplayStatus: $($state.PowerStateDisplay)"
+
+                if (-not $state.IsRunning) {
+                    Write-Log "VM is not running, skipping stop: $($vm.Name)"
+                    continue
+                }
+
                 Write-Log "Stopping VM: $($vm.Name)"
 
                 Stop-AzVM `
