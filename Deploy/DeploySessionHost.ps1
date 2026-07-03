@@ -15,6 +15,13 @@ JOIN TYPES
 - ADDS  = classic Active Directory / Entra Domain Services join using Key Vault credentials
 - ENTRA = Microsoft Entra join using AADLoginForWindows extension, with Intune enrollment dependent on tenant-side MDM configuration
 
+RBAC Requirements
+-   "Desktop Virtualization Host Pool Contributor",
+    "Virtual Machine Contributor",
+    "Network Contributor",
+    "Reader",
+    "Key Vault Secrets User",
+    "Desktop Virtualization Contributor"
 NOTES
 - Replace the placeholder values in the ENVIRONMENT CONFIG section before use.
 - Local admin credentials are read from Key Vault.
