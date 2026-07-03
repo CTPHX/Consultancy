@@ -51,7 +51,7 @@ $GrowByPercent          = 20
 # Safety / behaviour
 $ShrinkLockDays = 30
 $MaxGrowthGiB   = 100
-$WhatIfMode     = $false
+$WhatIfMode     = $true
 
 # State variable names
 $LastGrowTimesVariableName = "FSLogix-LastGrowTimesJson"
