@@ -22,6 +22,7 @@ RBAC Requirements
     "Reader",
     "Key Vault Secrets User",
     "Desktop Virtualization Contributor"
+    
 NOTES
 - Replace the placeholder values in the ENVIRONMENT CONFIG section before use.
 - Local admin credentials are read from Key Vault.
