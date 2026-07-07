@@ -36,6 +36,7 @@ Required modules / worker requirements
 - Az.Compute
 - Hyper-V PowerShell module on the Hybrid Runbook Worker if converting or validating VHD/VHDX.
 - BitsTransfer module recommended for download.
+- Hybrid worker must be domian joined and have access to SMB share.
 #>
 
 ################################################################################################################
