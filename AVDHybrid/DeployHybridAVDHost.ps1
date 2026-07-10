@@ -1,4 +1,8 @@
 <#
+README
+© Phoenix Software 2026
+Developed by Aiden Wright
+
 .SYNOPSIS
     Stage 2 AVD Hybrid deployment runbook for Hyper-V session hosts.
 
