@@ -2,6 +2,9 @@
 .SYNOPSIS
     Stage 2 AVD Hybrid deployment runbook for Hyper-V session hosts.
 
+    Version 15 fixes Azure Arc connection-state detection by parsing JSON where available
+    and recognising the current "Agent Status : Connected" output.
+
 .DESCRIPTION
     Deploys Azure Virtual Desktop Hybrid session hosts onto Hyper-V using the VHDX template
     produced by Stage 1: AVDHybridImageSync.
@@ -51,7 +54,15 @@
         Local administrator credential injected through unattend.xml / image.
 
     IMPORTANT:
-        This is a Stage 2 draft. Test with SessionHostCount = 1 first.
+        Test with SessionHostCount = 1 first.
+
+    VERSION 13 CHANGES:
+        - Waits for the domain-join reboot to genuinely start and complete.
+        - Requires consecutive healthy PowerShell Direct checks after domain join.
+        - Confirms domain membership, DNS and network readiness before Azure Arc installation.
+        - Adds a post-domain-join settling period.
+        - Makes Azure Arc installation idempotent and retryable after interrupted guest sessions.
+        - Detects an already-installed or already-connected Azure Connected Machine Agent.
 #>
 
 param(
@@ -70,23 +81,23 @@ param(
 ################################################################################################################
 
 # Tenant
-$TenantId                              = "00000000-0000-0000-0000-000000000000"
+$TenantId                              = "X-X-X-X"
 
 # Subscriptions
 # AVD subscription = where the host pool lives.
 # Arc subscription = where the Azure Arc-enabled server resources live.
-$AvdSubscriptionId                     = "00000000-0000-0000-0000-000000000000"
-$ArcSubscriptionId                     = "00000000-0000-0000-0000-000000000000"
+$AvdSubscriptionId                     = "X-X-X-X"
+$ArcSubscriptionId                     = "X-X-X-X"
 
 # AVD
 $HostPoolResourceGroupName             = "rg-avd-hosts-uks"
-$HostPoolName                          = "vdpool-avd-prod-uks-desktops"
+$HostPoolName                          = "vdpool-avd-prod-uks-hybrid"
 $RegistrationTokenHours                = 24
 $RegistrationTimeoutMinutes            = 30
 $RegistrationPollSeconds               = 30
 
 # Azure Arc
-$ArcResourceGroupName                  = "rg-avd-hybrid-arc-uks"
+$ArcResourceGroupName                  = "rg-avd-hosts-uks"
 $ArcLocation                           = "uksouth"
 $ArcCloud                              = "AzureCloud"
 
@@ -97,7 +108,7 @@ $CurrentGalleryVersionVariableName     = "AVDHybrid-CurrentGalleryVersion"
 # Key Vault
 # The Key Vault can be in either subscription. Set the subscription it lives in below.
 $KeyVaultSubscriptionId                = $AvdSubscriptionId
-$KeyVaultName                          = ""
+$KeyVaultName                          = "kv-phxr-avd-uks-07"
 
 # Guest local administrator
 # These credentials are injected into unattend.xml and then used by PowerShell Direct.
@@ -105,8 +116,8 @@ $LocalAdminUsernameSecretName           = "adm-local-upn"
 $LocalAdminPasswordSecretName           = "adm-local-pw"
 
 # AD DS join
-$DomainFqdn                            = "phoenixdemo.co.uk"
-$DomainOuPath                          = "OU=AVD,OU=Computers,DC=phoenixdemo,DC=co,DC=uk"
+$DomainFqdn                            = "domain.co.uk"
+$DomainOuPath                          = ""
 $DomainJoinUsernameSecretName           = "domainjoin-upn"
 $DomainJoinPasswordSecretName           = "domainjoin-pw"
 
@@ -121,8 +132,8 @@ $ArcServicePrincipalSecretSecretName    = "arc-sp-secret"
 # If not, the Hybrid Worker must be able to remote to the Hyper-V host using WinRM.
 $ExecuteHyperVCommandsLocally           = $false
 $HyperVHostName                         = "avdhyperv.phoenixdemo.co.uk"
-$HyperVVmRootPath                       = "D:\Hyper-V\AVDHybrid"
-$HyperVSwitchName                       = "AVD-vSwitch"
+$HyperVVmRootPath                       = "E:\Hyper-V\AVDHybrid"
+$HyperVSwitchName                       = "AVDHybridNAT"
 
 $VmGeneration                           = 2
 $ProcessorCount                         = 2
@@ -138,12 +149,19 @@ $WaitForPowerShellDirectTimeoutMinutes  = 30
 $WaitForPowerShellDirectPollSeconds     = 20
 $DomainJoinTimeoutMinutes               = 30
 $DomainJoinPollSeconds                  = 20
+$PostDomainJoinStableChecks             = 3
+$PostDomainJoinStablePollSeconds         = 20
+$PostDomainJoinSettleSeconds             = 90
+
 
 # Azure Arc install inside guest
 $ArcAgentDownloadUrl                    = "https://aka.ms/AzureConnectedMachineAgent"
 $ArcInstallFolder                       = "C:\AVDHybrid\Arc"
 $ArcConnectTimeoutMinutes               = 20
 $ArcConnectPollSeconds                  = 30
+$ArcInstallRetryCount                    = 5
+$ArcInstallRetryDelaySeconds             = 45
+
 
 # Cleanup / behaviour
 $DrainModeBeforeDelete                  = $false
@@ -340,6 +358,34 @@ function Get-PlainTextFromSecureString {
             [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
         }
     }
+}
+
+function New-LocalVmCredentialForPowerShellDirect {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VmName,
+
+        [Parameter(Mandatory = $true)]
+        [pscredential]$Credential
+    )
+
+    # PowerShell Direct is more reliable when the username is explicitly scoped
+    # to the guest VM's local SAM, for example: VMNAME\localadmin.
+    $rawUsername = $Credential.UserName
+
+    if ($rawUsername -match "\\") {
+        $localUsername = ($rawUsername -split "\\")[-1]
+    }
+    elseif ($rawUsername -match "@") {
+        $localUsername = ($rawUsername -split "@")[0]
+    }
+    else {
+        $localUsername = $rawUsername
+    }
+
+    $scopedUsername = "{0}\{1}" -f $VmName, $localUsername
+
+    return [pscredential]::new($scopedUsername, $Credential.Password)
 }
 
 function Get-TemplatePathFromAutomationVariable {
@@ -854,6 +900,16 @@ function New-HyperVSessionHostVm {
             return [System.Security.SecurityElement]::Escape($Value)
         }
 
+        function ConvertTo-PowerShellSingleQuotedStringLocal {
+            param([AllowNull()][string]$Value)
+
+            if ($null -eq $Value) {
+                return "''"
+            }
+
+            return "'" + ($Value -replace "'", "''") + "'"
+        }
+
         function Get-FreeDriveLetterLocal {
             $usedLetters = Get-Volume | Where-Object DriveLetter | Select-Object -ExpandProperty DriveLetter
             $candidateLetters = "Z","Y","X","W","V","U","T","S","R","Q","P","O","N","M","L","K","J","I","H","G","F","E","D"
@@ -892,45 +948,99 @@ function New-HyperVSessionHostVm {
             Write-Output "Injecting unattend.xml into '$destVhdPath'..."
 
             $mounted = $null
+            $diskNumber = $null
+            $temporaryAccessPaths = @()
 
             try {
-                $mounted = Mount-VHD -Path $destVhdPath -Passthru
-                Start-Sleep -Seconds 3
+                $mounted = Mount-VHD -Path $destVhdPath -Passthru -ErrorAction Stop
+                Start-Sleep -Seconds 5
 
-                $disk = $mounted | Get-Disk
-                $partitions = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -ne "Reserved" }
+                $disk = @($mounted | Get-Disk -ErrorAction Stop | Select-Object -First 1)
+
+                if (-not $disk) {
+                    throw "Unable to resolve mounted VHDX to a disk."
+                }
+
+                $diskNumber = [int]$disk.Number
+                Write-Output "Mounted VHDX as disk number $diskNumber."
+
+                # Bring the mounted disk online/read-write if Windows presents it offline.
+                try {
+                    Set-Disk -Number $diskNumber -IsOffline $false -ErrorAction SilentlyContinue
+                    Set-Disk -Number $diskNumber -IsReadOnly $false -ErrorAction SilentlyContinue
+                }
+                catch {
+                    Write-Output "Disk online/read-write adjustment warning: $($_.Exception.Message)"
+                }
+
+                $partitions = @(
+                    Get-Partition -DiskNumber $diskNumber -ErrorAction Stop |
+                    Where-Object {
+                        $_.Type -ne "Reserved" -and
+                        $_.Size -gt 1GB
+                    } |
+                    Sort-Object Size -Descending
+                )
+
+                if (-not $partitions -or $partitions.Count -eq 0) {
+                    throw "No suitable partitions found on mounted VHDX disk number $diskNumber."
+                }
 
                 $windowsDrive = $null
 
                 foreach ($partition in $partitions) {
-                    $volume = $null
+                    Write-Output "Checking partition $($partition.PartitionNumber), size $([math]::Round($partition.Size / 1GB, 2)) GiB..."
+
+                    $volumes = @()
 
                     try {
-                        $volume = $partition | Get-Volume -ErrorAction SilentlyContinue
+                        $volumes = @($partition | Get-Volume -ErrorAction SilentlyContinue)
                     }
                     catch {
-                        $volume = $null
+                        $volumes = @()
                     }
 
-                    if (-not $volume) {
+                    if (-not $volumes -or $volumes.Count -eq 0) {
+                        Write-Output "No volume found for partition $($partition.PartitionNumber)."
                         continue
                     }
 
-                    if (-not $volume.DriveLetter) {
-                        $assignedDriveLetter = Get-FreeDriveLetterLocal
+                    foreach ($volume in $volumes) {
+                        $drive = $null
 
-                        Add-PartitionAccessPath `
-                            -DiskNumber $disk.Number `
-                            -PartitionNumber $partition.PartitionNumber `
-                            -AccessPath "$assignedDriveLetter`:\" | Out-Null
+                        if ($volume.DriveLetter) {
+                            $drive = [string]$volume.DriveLetter
+                        }
+                        else {
+                            $assignedDriveLetter = Get-FreeDriveLetterLocal
+                            $accessPath = "$assignedDriveLetter`:\"
 
-                        $volume = Get-Volume -DriveLetter $assignedDriveLetter
+                            Write-Output "Assigning temporary drive letter $assignedDriveLetter to partition $($partition.PartitionNumber)..."
+
+                            Add-PartitionAccessPath `
+                                -DiskNumber $diskNumber `
+                                -PartitionNumber $partition.PartitionNumber `
+                                -AccessPath $accessPath `
+                                -ErrorAction Stop | Out-Null
+
+                            $temporaryAccessPaths += [PSCustomObject]@{
+                                DiskNumber      = $diskNumber
+                                PartitionNumber = $partition.PartitionNumber
+                                AccessPath      = $accessPath
+                            }
+
+                            Start-Sleep -Seconds 2
+                            $drive = $assignedDriveLetter
+                        }
+
+                        if ($drive -and (Test-Path "$drive`:\Windows")) {
+                            $windowsDrive = $drive
+                            Write-Output "Windows volume found on drive $windowsDrive`:"
+                            break
+                        }
                     }
 
-                    $drive = $volume.DriveLetter
-
-                    if ($drive -and (Test-Path "$drive`:\Windows")) {
-                        $windowsDrive = $drive
+                    if ($windowsDrive) {
                         break
                     }
                 }
@@ -942,7 +1052,7 @@ function New-HyperVSessionHostVm {
                 $pantherPath = "$windowsDrive`:\Windows\Panther"
 
                 if (-not (Test-Path $pantherPath)) {
-                    New-Item -Path $pantherPath -ItemType Directory -Force | Out-Null
+                    New-Item -Path $pantherPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
                 }
 
                 $computerNameXml = ConvertTo-XmlEscapedTextLocal -Value $VmName
@@ -996,41 +1106,276 @@ function New-HyperVSessionHostVm {
 "@
 
                 $unattendPath = Join-Path $pantherPath "Unattend.xml"
-                Set-Content -Path $unattendPath -Value $unattendXml -Encoding UTF8 -Force
+                Set-Content -Path $unattendPath -Value $unattendXml -Encoding UTF8 -Force -ErrorAction Stop
 
                 Write-Output "Injected unattend.xml to '$unattendPath'."
+
+                # Fallback account creation:
+                # Use a very small SetupComplete.cmd implementation using net.exe rather than
+                # Get-LocalUser/New-LocalUser. This avoids LocalAccounts module hangs during Windows setup.
+                $setupScriptsPath = "$windowsDrive`:\Windows\Setup\Scripts"
+
+                if (-not (Test-Path $setupScriptsPath)) {
+                    New-Item -Path $setupScriptsPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+                }
+
+                $setupCompleteCmdPath = Join-Path $setupScriptsPath "SetupComplete.cmd"
+
+                $setupLogPathInGuest = "C:\Windows\Temp\AVDHybrid-SetupComplete.log"
+
+                # Escape for CMD. Percent signs must be doubled in batch files.
+                $cmdSafeUsername = $LocalAdminUsername.Replace('"', '')
+                $cmdSafePassword = $LocalAdminPlainPassword.Replace('"', '').Replace('%', '%%')
+
+                $setupCompleteCmd = @"
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+
+echo ================================================== >> "$setupLogPathInGuest"
+echo AVD Hybrid SetupComplete starting %DATE% %TIME% >> "$setupLogPathInGuest"
+echo Running as: >> "$setupLogPathInGuest"
+whoami >> "$setupLogPathInGuest" 2>>&1
+
+set "AVDUSER=$cmdSafeUsername"
+set "AVDPASS=$cmdSafePassword"
+
+echo Creating or resetting local admin account [%AVDUSER%]... >> "$setupLogPathInGuest"
+
+net user "%AVDUSER%" >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo User exists. Resetting password and enabling account. >> "$setupLogPathInGuest"
+    net user "%AVDUSER%" "%AVDPASS%" /active:yes >> "$setupLogPathInGuest" 2>>&1
+) else (
+    echo User does not exist. Creating account. >> "$setupLogPathInGuest"
+    net user "%AVDUSER%" "%AVDPASS%" /add /active:yes >> "$setupLogPathInGuest" 2>>&1
+)
+
+echo Adding account to local Administrators group... >> "$setupLogPathInGuest"
+net localgroup Administrators "%AVDUSER%" /add >> "$setupLogPathInGuest" 2>>&1
+
+echo Setting password never expires where supported... >> "$setupLogPathInGuest"
+wmic UserAccount where "Name='%AVDUSER%'" set PasswordExpires=False >> "$setupLogPathInGuest" 2>>&1
+
+echo Enabling PowerShell remoting best effort... >> "$setupLogPathInGuest"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { Enable-PSRemoting -Force -SkipNetworkProfileCheck } catch { Write-Output `$_.Exception.Message }" >> "$setupLogPathInGuest" 2>>&1
+
+echo Verifying local user... >> "$setupLogPathInGuest"
+net user "%AVDUSER%" >> "$setupLogPathInGuest" 2>>&1
+
+echo AVD Hybrid SetupComplete finished %DATE% %TIME% >> "$setupLogPathInGuest"
+
+del /f /q "%WINDIR%\Setup\Scripts\SetupComplete.cmd" >> "$setupLogPathInGuest" 2>>&1
+
+exit /b 0
+"@
+
+                Set-Content -Path $setupCompleteCmdPath -Value $setupCompleteCmd -Encoding ASCII -Force -ErrorAction Stop
+
+                Write-Output "Injected simplified SetupComplete local admin script to '$setupCompleteCmdPath'."
+
             }
             finally {
+                foreach ($item in $temporaryAccessPaths) {
+                    try {
+                        Remove-PartitionAccessPath `
+                            -DiskNumber $item.DiskNumber `
+                            -PartitionNumber $item.PartitionNumber `
+                            -AccessPath $item.AccessPath `
+                            -ErrorAction SilentlyContinue | Out-Null
+                    }
+                    catch {
+                        Write-Output "Could not remove temporary access path $($item.AccessPath): $($_.Exception.Message)"
+                    }
+                }
+
                 if ($mounted) {
-                    Dismount-VHD -Path $destVhdPath
+                    Dismount-VHD -Path $destVhdPath -ErrorAction SilentlyContinue
                 }
             }
         }
 
         Write-Output "Creating Hyper-V VM '$VmName'..."
 
-        New-VM `
-            -Name $VmName `
-            -Generation $Generation `
-            -MemoryStartupBytes $MemoryStartupBytes `
-            -VHDPath $destVhdPath `
-            -Path $vmFolder `
-            -SwitchName $SwitchName | Out-Null
+        try {
+            Write-Output "STEP [NEW_VM_NO_VHD] starting..."
+            $vm = New-VM `
+                -Name $VmName `
+                -Generation $Generation `
+                -MemoryStartupBytes $MemoryStartupBytes `
+                -Path $vmFolder `
+                -NoVHD `
+                -ErrorAction Stop
 
-        Set-VMProcessor -VMName $VmName -Count $ProcessorCount
+            if (-not $vm) {
+                $vm = Get-VM -Name $VmName -ErrorAction Stop | Select-Object -First 1
+            }
 
-        if ($UseDynamicMemory) {
-            Set-VMMemory `
-                -VMName $VmName `
-                -DynamicMemoryEnabled $true `
-                -MinimumBytes $MemoryMinimumBytes `
-                -StartupBytes $MemoryStartupBytes `
-                -MaximumBytes $MemoryMaximumBytes
+            Write-Output "STEP [NEW_VM_NO_VHD] completed. VMId: $($vm.Id)"
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [NEW_VM_NO_VHD]. $($_.Exception.Message)"
         }
 
-        Enable-VMIntegrationService -VMName $VmName -Name "Guest Service Interface" -ErrorAction SilentlyContinue
+        try {
+            Write-Output "STEP [REMOVE_DEFAULT_NICS] starting..."
+            $existingAdapters = @(Get-VMNetworkAdapter -VM $vm -ErrorAction SilentlyContinue)
 
-        Start-VM -Name $VmName
+            foreach ($adapter in $existingAdapters) {
+                Write-Output "Removing existing VM network adapter '$($adapter.Name)' from '$VmName'..."
+                Remove-VMNetworkAdapter `
+                    -VMNetworkAdapter $adapter `
+                    -ErrorAction SilentlyContinue
+            }
+
+            Write-Output "STEP [REMOVE_DEFAULT_NICS] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [REMOVE_DEFAULT_NICS]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [ADD_BOOT_DISK] starting..."
+            Add-VMHardDiskDrive `
+                -VM $vm `
+                -ControllerType SCSI `
+                -ControllerNumber 0 `
+                -ControllerLocation 0 `
+                -Path $destVhdPath `
+                -ErrorAction Stop
+
+            Write-Output "STEP [ADD_BOOT_DISK] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [ADD_BOOT_DISK]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [GET_BOOT_DISK] starting..."
+            $bootDisk = Get-VMHardDiskDrive -VM $vm -ErrorAction Stop |
+                Where-Object { $_.Path -ieq $destVhdPath } |
+                Select-Object -First 1
+
+            if (-not $bootDisk) {
+                throw "Unable to find attached boot disk '$destVhdPath' on VM '$VmName'."
+            }
+
+            Write-Output "STEP [GET_BOOT_DISK] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [GET_BOOT_DISK]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [SET_FIRMWARE] starting..."
+            Set-VMFirmware `
+                -VM $vm `
+                -FirstBootDevice $bootDisk `
+                -ErrorAction Stop
+
+            Write-Output "STEP [SET_FIRMWARE] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [SET_FIRMWARE]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [SET_PROCESSOR] starting..."
+            Set-VMProcessor -VM $vm -Count $ProcessorCount -ErrorAction Stop
+            Write-Output "STEP [SET_PROCESSOR] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [SET_PROCESSOR]. $($_.Exception.Message)"
+        }
+
+        if ($UseDynamicMemory) {
+            try {
+                Write-Output "STEP [SET_DYNAMIC_MEMORY] starting..."
+                Set-VMMemory `
+                    -VM $vm `
+                    -DynamicMemoryEnabled $true `
+                    -MinimumBytes $MemoryMinimumBytes `
+                    -StartupBytes $MemoryStartupBytes `
+                    -MaximumBytes $MemoryMaximumBytes `
+                    -ErrorAction Stop
+
+                Write-Output "STEP [SET_DYNAMIC_MEMORY] completed."
+            }
+            catch {
+                throw "Hyper-V VM creation failed at step [SET_DYNAMIC_MEMORY]. $($_.Exception.Message)"
+            }
+        }
+
+        try {
+            Write-Output "STEP [ADD_NIC_DISCONNECTED] starting..."
+            Add-VMNetworkAdapter `
+                -VM $vm `
+                -Name "AVD-NIC" `
+                -ErrorAction Stop
+
+            Write-Output "STEP [ADD_NIC_DISCONNECTED] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [ADD_NIC_DISCONNECTED]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [CONNECT_NIC_TO_SWITCH] starting..."
+
+            $switchMatches = @(Get-VMSwitch | Where-Object { $_.Name -eq $SwitchName })
+
+            if ($switchMatches.Count -ne 1) {
+                $switchSummary = @(Get-VMSwitch | Select-Object Name, Id, SwitchType | ForEach-Object {
+                    "Name=$($_.Name); Id=$($_.Id); Type=$($_.SwitchType)"
+                }) -join " | "
+
+                throw "Expected exactly one Hyper-V switch named '$SwitchName' but found $($switchMatches.Count). Switches on host: $switchSummary"
+            }
+
+            $adapterMatches = @(Get-VMNetworkAdapter -VMName $VmName -ErrorAction Stop | Where-Object { $_.Name -eq "AVD-NIC" })
+
+            if ($adapterMatches.Count -ne 1) {
+                $adapterSummary = @(Get-VMNetworkAdapter -VMName $VmName -ErrorAction SilentlyContinue | Select-Object Name, SwitchName, MacAddress | ForEach-Object {
+                    "Name=$($_.Name); Switch=$($_.SwitchName); Mac=$($_.MacAddress)"
+                }) -join " | "
+
+                throw "Expected exactly one network adapter named 'AVD-NIC' on VM '$VmName' but found $($adapterMatches.Count). Adapters: $adapterSummary"
+            }
+
+            Write-Output "Connecting adapter 'AVD-NIC' on VM '$VmName' to switch '$($switchMatches[0].Name)'..."
+
+            # Use VMName + adapter Name rather than passing the adapter object. This avoids object-binding issues seen through remoting.
+            Connect-VMNetworkAdapter `
+                -VMName $VmName `
+                -Name "AVD-NIC" `
+                -SwitchName ([string]$switchMatches[0].Name) `
+                -ErrorAction Stop
+
+            $connectedNic = Get-VMNetworkAdapter -VMName $VmName -Name "AVD-NIC" -ErrorAction Stop
+
+            Write-Output "NIC connected. Adapter='$($connectedNic.Name)', Switch='$($connectedNic.SwitchName)', Mac='$($connectedNic.MacAddress)'."
+            Write-Output "STEP [CONNECT_NIC_TO_SWITCH] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [CONNECT_NIC_TO_SWITCH]. $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [ENABLE_GUEST_SERVICE_INTERFACE] starting..."
+            Enable-VMIntegrationService -VMName $VmName -Name "Guest Service Interface" -ErrorAction SilentlyContinue
+            Write-Output "STEP [ENABLE_GUEST_SERVICE_INTERFACE] completed."
+        }
+        catch {
+            Write-Output "STEP [ENABLE_GUEST_SERVICE_INTERFACE] warning: $($_.Exception.Message)"
+        }
+
+        try {
+            Write-Output "STEP [START_VM] starting..."
+            Start-VM -VM $vm -ErrorAction Stop
+            Write-Output "STEP [START_VM] completed."
+        }
+        catch {
+            throw "Hyper-V VM creation failed at step [START_VM]. $($_.Exception.Message)"
+        }
 
         Write-Output "Hyper-V VM '$VmName' created and started."
     }
@@ -1152,47 +1497,252 @@ function Invoke-GuestDomainJoin {
 
         Import-Module Hyper-V -ErrorAction Stop
 
-        Invoke-Command `
-            -VMName $VmName `
-            -Credential $GuestCredential `
-            -ScriptBlock {
-                param(
-                    [pscredential]$DomainJoinCredential,
-                    [string]$DomainFqdn,
-                    [string]$DomainOuPath,
-                    [string]$ExpectedComputerName
-                )
+        try {
+            Invoke-Command `
+                -VMName $VmName `
+                -Credential $GuestCredential `
+                -ScriptBlock {
+                    param(
+                        [pscredential]$DomainJoinCredential,
+                        [string]$DomainFqdn,
+                        [string]$DomainOuPath,
+                        [string]$ExpectedComputerName
+                    )
 
-                $ErrorActionPreference = "Stop"
+                    $ErrorActionPreference = "Stop"
 
-                if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
-                    Rename-Computer -NewName $ExpectedComputerName -Force
-                    Restart-Computer -Force
-                    return
-                }
+                    $computerSystem = Get-CimInstance Win32_ComputerSystem
 
-                if ([string]::IsNullOrWhiteSpace($DomainOuPath)) {
-                    Add-Computer `
-                        -DomainName $DomainFqdn `
-                        -Credential $DomainJoinCredential `
-                        -Force `
-                        -Restart
-                }
-                else {
-                    Add-Computer `
-                        -DomainName $DomainFqdn `
-                        -Credential $DomainJoinCredential `
-                        -OUPath $DomainOuPath `
-                        -Force `
-                        -Restart
-                }
-            } `
-            -ArgumentList @($DomainJoinCredential, $DomainFqdn, $DomainOuPath, $VmName)
+                    if ($computerSystem.PartOfDomain -and $computerSystem.Domain -ieq $DomainFqdn) {
+                        Write-Output "ALREADY_DOMAIN_JOINED"
+                        return
+                    }
+
+                    if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
+                        throw "Guest computer name '$env:COMPUTERNAME' does not match expected name '$ExpectedComputerName'."
+                    }
+
+                    $joinParameters = @{
+                        DomainName = $DomainFqdn
+                        Credential = $DomainJoinCredential
+                        Force      = $true
+                        Restart    = $true
+                        PassThru   = $true
+                        Verbose    = $true
+                    }
+
+                    if (-not [string]::IsNullOrWhiteSpace($DomainOuPath)) {
+                        $joinParameters.OUPath = $DomainOuPath
+                    }
+
+                    Add-Computer @joinParameters
+                } `
+                -ArgumentList @($DomainJoinCredential, $DomainFqdn, $DomainOuPath, $VmName) `
+                -ErrorAction Stop
+        }
+        catch {
+            # A PowerShell Direct session commonly ends while Add-Computer -Restart reboots the guest.
+            # Treat the known session-ended condition as expected; all other errors are rethrown.
+            $message = $_.Exception.Message
+
+            if (
+                $message -match "remote session might have ended" -or
+                $message -match "The I/O operation has been aborted" -or
+                $message -match "pipeline has been stopped" -or
+                $message -match "virtual machine.*restarted"
+            ) {
+                Write-Output "DOMAIN_JOIN_REBOOT_SESSION_ENDED"
+                return
+            }
+
+            throw
+        }
     }
 
-    Invoke-HyperVHostCommand `
+    $output = Invoke-HyperVHostCommand `
         -ScriptBlock $scriptBlock `
-        -ArgumentList @($VmName, $GuestLocalAdminCredential, $DomainJoinCredential, $DomainFqdn, $DomainOuPath) | Out-Null
+        -ArgumentList @($VmName, $GuestLocalAdminCredential, $DomainJoinCredential, $DomainFqdn, $DomainOuPath)
+
+    $output | ForEach-Object { Write-Log -Level "INFO" -Component "ADDS" -Message $_ }
+}
+
+function Wait-ForDomainJoinRestartAndStability {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VmName,
+
+        [Parameter(Mandatory = $true)]
+        [pscredential]$GuestLocalAdminCredential,
+
+        [int]$TimeoutMinutes = 30,
+
+        [int]$PollSeconds = 20,
+
+        [int]$RequiredStableChecks = 3,
+
+        [int]$SettleSeconds = 90,
+
+        [Parameter(Mandatory = $true)]
+        [ref]$Ready
+    )
+
+    $Ready.Value = $false
+
+    Write-Log -Level "INFO" -Component "GUEST" -Message "Waiting for domain-join restart and stable guest state on '$VmName'..."
+
+    $scriptBlock = {
+        param(
+            [string]$VmName,
+            [pscredential]$GuestCredential,
+            [string]$DomainFqdn,
+            [int]$TimeoutMinutes,
+            [int]$PollSeconds,
+            [int]$RequiredStableChecks,
+            [int]$SettleSeconds
+        )
+
+        Import-Module Hyper-V -ErrorAction Stop
+
+        $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+        $sawUnavailable = $false
+        $stableChecks = 0
+        $attempt = 0
+
+        while ((Get-Date) -lt $deadline) {
+            $attempt++
+
+            $vm = Get-VM -Name $VmName -ErrorAction Stop
+
+            if ($vm.State -ne "Running") {
+                $sawUnavailable = $true
+                $stableChecks = 0
+                Write-Output ("WAIT_REBOOT {0}: VM state is {1}." -f $attempt, $vm.State)
+                Start-Sleep -Seconds $PollSeconds
+                continue
+            }
+
+            try {
+                $status = Invoke-Command `
+                    -VMName $VmName `
+                    -Credential $GuestCredential `
+                    -ScriptBlock {
+                        param([string]$DomainFqdn)
+
+                        $ErrorActionPreference = "Stop"
+
+                        $computerSystem = Get-CimInstance Win32_ComputerSystem
+                        $network = Get-NetIPConfiguration | Where-Object {
+                            $_.IPv4Address -and $_.IPv4DefaultGateway
+                        } | Select-Object -First 1
+
+                        $dnsReady = $false
+                        try {
+                            Resolve-DnsName `
+                                -Name ("_ldap._tcp.dc._msdcs.{0}" -f $DomainFqdn) `
+                                -Type SRV `
+                                -ErrorAction Stop | Out-Null
+                            $dnsReady = $true
+                        }
+                        catch {
+                            $dnsReady = $false
+                        }
+
+                        [pscustomobject]@{
+                            ComputerName = $env:COMPUTERNAME
+                            PartOfDomain = [bool]$computerSystem.PartOfDomain
+                            Domain       = [string]$computerSystem.Domain
+                            HasIPv4      = [bool]($null -ne $network)
+                            DnsReady     = [bool]$dnsReady
+                            Workstation  = [string](Get-Service LanmanWorkstation -ErrorAction Stop).Status
+                            Netlogon     = [string](Get-Service Netlogon -ErrorAction SilentlyContinue).Status
+                        }
+                    } `
+                    -ArgumentList $DomainFqdn `
+                    -ErrorAction Stop
+
+                $healthy = (
+                    $status.PartOfDomain -and
+                    $status.Domain -ieq $DomainFqdn -and
+                    $status.HasIPv4 -and
+                    $status.DnsReady -and
+                    $status.Workstation -eq "Running"
+                )
+
+                if ($healthy) {
+                    $stableChecks++
+                    Write-Output ("STABLE_CHECK {0}/{1}: Domain={2}; IPv4={3}; DNS={4}; Workstation={5}; Netlogon={6}" -f `
+                        $stableChecks,
+                        $RequiredStableChecks,
+                        $status.Domain,
+                        $status.HasIPv4,
+                        $status.DnsReady,
+                        $status.Workstation,
+                        $status.Netlogon)
+                }
+                else {
+                    $stableChecks = 0
+                    Write-Output ("WAIT_HEALTH {0}: PartOfDomain={1}; Domain={2}; IPv4={3}; DNS={4}; Workstation={5}; Netlogon={6}" -f `
+                        $attempt,
+                        $status.PartOfDomain,
+                        $status.Domain,
+                        $status.HasIPv4,
+                        $status.DnsReady,
+                        $status.Workstation,
+                        $status.Netlogon)
+                }
+
+                if ($stableChecks -ge $RequiredStableChecks) {
+                    if (-not $sawUnavailable) {
+                        Write-Output "REBOOT_OUTAGE_NOT_OBSERVED: The guest may have restarted before monitoring began. Domain membership is confirmed."
+                    }
+
+                    if ($SettleSeconds -gt 0) {
+                        Write-Output ("SETTLING: Waiting an additional {0} second(s) for startup processing and Group Policy." -f $SettleSeconds)
+                        Start-Sleep -Seconds $SettleSeconds
+                    }
+
+                    Write-Output "DOMAIN_READY"
+                    return
+                }
+            }
+            catch {
+                $sawUnavailable = $true
+                $stableChecks = 0
+                Write-Output ("WAIT_PSDIRECT {0}: {1}" -f $attempt, $_.Exception.Message)
+            }
+
+            Start-Sleep -Seconds $PollSeconds
+        }
+
+        Write-Output "DOMAIN_NOT_READY"
+    }
+
+    $output = Invoke-HyperVHostCommand `
+        -ScriptBlock $scriptBlock `
+        -ArgumentList @(
+            $VmName,
+            $GuestLocalAdminCredential,
+            $DomainFqdn,
+            $TimeoutMinutes,
+            $PollSeconds,
+            $RequiredStableChecks,
+            $SettleSeconds
+        )
+
+    foreach ($line in $output) {
+        if ($line -eq "DOMAIN_READY") {
+            Write-Log -Level "SUCCESS" -Component "GUEST" -Message "'$VmName' is domain joined, network ready and stable after restart."
+            $Ready.Value = $true
+            return
+        }
+
+        if ($line -eq "DOMAIN_NOT_READY") {
+            Write-Log -Level "ERROR" -Component "GUEST" -Message "'$VmName' did not become stable after the domain join within $TimeoutMinutes minute(s)."
+            continue
+        }
+
+        Write-Log -Level "INFO" -Component "GUEST" -Message $line
+    }
 }
 
 function Install-ArcAgentInGuest {
@@ -1219,30 +1769,16 @@ function Install-ArcAgentInGuest {
     }
 
     $tagString = $tagPairs -join ","
+    $lastError = $null
 
-    $scriptBlock = {
-        param(
-            [string]$VmName,
-            [pscredential]$GuestCredential,
-            [string]$ArcAgentDownloadUrl,
-            [string]$ArcInstallFolder,
-            [string]$TenantId,
-            [string]$ArcSubscriptionId,
-            [string]$ArcResourceGroupName,
-            [string]$ArcLocation,
-            [string]$ArcCloud,
-            [string]$ServicePrincipalId,
-            [string]$ServicePrincipalSecret,
-            [string]$TagString
-        )
+    for ($attempt = 1; $attempt -le $ArcInstallRetryCount; $attempt++) {
+        Write-Log -Level "INFO" -Component "ARC" -Message "Azure Arc guest operation attempt $attempt of $ArcInstallRetryCount for '$VmName'."
 
-        Import-Module Hyper-V -ErrorAction Stop
-
-        Invoke-Command `
-            -VMName $VmName `
-            -Credential $GuestCredential `
-            -ScriptBlock {
+        try {
+            $scriptBlock = {
                 param(
+                    [string]$VmName,
+                    [pscredential]$GuestCredential,
                     [string]$ArcAgentDownloadUrl,
                     [string]$ArcInstallFolder,
                     [string]$TenantId,
@@ -1252,101 +1788,268 @@ function Install-ArcAgentInGuest {
                     [string]$ArcCloud,
                     [string]$ServicePrincipalId,
                     [string]$ServicePrincipalSecret,
-                    [string]$TagString,
-                    [string]$ResourceName
+                    [string]$TagString
                 )
 
-                $ErrorActionPreference = "Stop"
-                $ConfirmPreference = "None"
+                Import-Module Hyper-V -ErrorAction Stop
 
-                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-Command `
+                    -VMName $VmName `
+                    -Credential $GuestCredential `
+                    -ScriptBlock {
+                        param(
+                            [string]$ArcAgentDownloadUrl,
+                            [string]$ArcInstallFolder,
+                            [string]$TenantId,
+                            [string]$ArcSubscriptionId,
+                            [string]$ArcResourceGroupName,
+                            [string]$ArcLocation,
+                            [string]$ArcCloud,
+                            [string]$ServicePrincipalId,
+                            [string]$ServicePrincipalSecret,
+                            [string]$TagString,
+                            [string]$ResourceName
+                        )
 
-                if (-not (Test-Path $ArcInstallFolder)) {
-                    New-Item -Path $ArcInstallFolder -ItemType Directory -Force | Out-Null
-                }
+                        $ErrorActionPreference = "Stop"
+                        $ConfirmPreference = "None"
+                        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-                $msiPath = Join-Path $ArcInstallFolder "AzureConnectedMachineAgent.msi"
-                $installLog = Join-Path $ArcInstallFolder "AzureConnectedMachineAgent-install.log"
+                        if (-not (Test-Path $ArcInstallFolder)) {
+                            New-Item -Path $ArcInstallFolder -ItemType Directory -Force | Out-Null
+                        }
 
-                Write-Output "Downloading Azure Connected Machine Agent..."
-                Invoke-WebRequest `
-                    -Uri $ArcAgentDownloadUrl `
-                    -OutFile $msiPath `
-                    -UseBasicParsing
+                        $msiPath = Join-Path $ArcInstallFolder "AzureConnectedMachineAgent.msi"
+                        $installLog = Join-Path $ArcInstallFolder "AzureConnectedMachineAgent-install.log"
+                        $connectLog = Join-Path $ArcInstallFolder "AzureConnectedMachineAgent-connect.log"
+                        $azcmagent = "C:\Program Files\AzureConnectedMachineAgent\azcmagent.exe"
 
-                Write-Output "Installing Azure Connected Machine Agent..."
-                $installArgs = "/i `"$msiPath`" /qn /l*v `"$installLog`""
-                $install = Start-Process -FilePath "msiexec.exe" -ArgumentList $installArgs -Wait -PassThru
+                        if (-not (Test-Path $azcmagent)) {
+                            if (-not (Test-Path $msiPath)) {
+                                Write-Output "Downloading Azure Connected Machine Agent..."
+                                Invoke-WebRequest `
+                                    -Uri $ArcAgentDownloadUrl `
+                                    -OutFile $msiPath `
+                                    -UseBasicParsing `
+                                    -ErrorAction Stop
+                            }
+                            else {
+                                Write-Output "Using previously downloaded Arc agent MSI '$msiPath'."
+                            }
 
-                if ($install.ExitCode -ne 0) {
-                    throw "Azure Connected Machine Agent MSI install failed with exit code $($install.ExitCode). Log: $installLog"
-                }
+                            Write-Output "Installing Azure Connected Machine Agent..."
+                            $installArgs = "/i `"$msiPath`" /qn /norestart /l*v `"$installLog`""
+                            $install = Start-Process -FilePath "msiexec.exe" -ArgumentList $installArgs -Wait -PassThru
 
-                $azcmagent = "C:\Program Files\AzureConnectedMachineAgent\azcmagent.exe"
+                            if ($install.ExitCode -notin @(0, 3010, 1641)) {
+                                throw "Azure Connected Machine Agent MSI install failed with exit code $($install.ExitCode). Log: $installLog"
+                            }
 
-                if (-not (Test-Path $azcmagent)) {
-                    throw "azcmagent.exe was not found at '$azcmagent'."
-                }
+                            if ($install.ExitCode -in @(3010, 1641)) {
+                                Write-Output "Arc agent installer returned reboot-required exit code $($install.ExitCode). Continuing and validating installation."
+                            }
 
-                Write-Output "Connecting machine to Azure Arc subscription '$ArcSubscriptionId'..."
+                            $agentDeadline = (Get-Date).AddMinutes(5)
+                            while (-not (Test-Path $azcmagent) -and (Get-Date) -lt $agentDeadline) {
+                                Start-Sleep -Seconds 5
+                            }
+                        }
+                        else {
+                            Write-Output "Azure Connected Machine Agent is already installed."
+                        }
 
-                $connectArgs = @(
-                    "connect",
-                    "--service-principal-id", $ServicePrincipalId,
-                    "--service-principal-secret", $ServicePrincipalSecret,
-                    "--tenant-id", $TenantId,
-                    "--subscription-id", $ArcSubscriptionId,
-                    "--resource-group", $ArcResourceGroupName,
-                    "--location", $ArcLocation,
-                    "--resource-name", $ResourceName,
-                    "--cloud", $ArcCloud
+                        if (-not (Test-Path $azcmagent)) {
+                            throw "azcmagent.exe was not found at '$azcmagent' after installation."
+                        }
+
+                        $himds = Get-Service -Name himds -ErrorAction SilentlyContinue
+                        if ($himds -and $himds.Status -ne "Running") {
+                            Write-Output "Starting Azure Connected Machine Agent service..."
+                            Start-Service -Name himds -ErrorAction Stop
+                        }
+
+                        function Get-ArcAgentConnectionStateLocal {
+                            param(
+                                [Parameter(Mandatory = $true)]
+                                [string]$AzcmAgentPath
+                            )
+
+                            # Prefer structured JSON output. Agent releases have used slightly different
+                            # property names, so inspect the common variants and then fall back to text.
+                            $jsonOutput = @(& $AzcmAgentPath show --json 2>&1)
+                            $jsonExitCode = $LASTEXITCODE
+                            $jsonText = $jsonOutput -join [Environment]::NewLine
+
+                            if ($jsonExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($jsonText)) {
+                                try {
+                                    $json = $jsonText | ConvertFrom-Json -ErrorAction Stop
+                                    $statusCandidates = @(
+                                        $json.status,
+                                        $json.agentStatus,
+                                        $json.agent_status,
+                                        $json.agent.status,
+                                        $json.connectionStatus,
+                                        $json.connection_status
+                                    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+
+                                    foreach ($candidate in $statusCandidates) {
+                                        if ([string]$candidate -ieq "Connected") {
+                                            return [pscustomobject]@{
+                                                Connected = $true
+                                                Status    = [string]$candidate
+                                                Output    = $jsonText
+                                            }
+                                        }
+                                    }
+                                }
+                                catch {
+                                    # Fall through to the human-readable output parser.
+                                }
+                            }
+
+                            $showOutput = @(& $AzcmAgentPath show 2>&1)
+                            $showExitCode = $LASTEXITCODE
+                            $showText = $showOutput -join [Environment]::NewLine
+
+                            # Current output uses "Agent Status : Connected". Keep the looser
+                            # "Status : Connected" fallback for compatibility with older agents.
+                            $isConnected = $showExitCode -eq 0 -and (
+                                $showText -match "(?im)^\s*Agent\s+Status\s*:\s*Connected\s*$" -or
+                                $showText -match "(?im)^\s*Status\s*:\s*Connected\s*$"
+                            )
+
+                            return [pscustomobject]@{
+                                Connected = [bool]$isConnected
+                                Status    = $(if ($isConnected) { "Connected" } else { "NotConnected" })
+                                Output    = $showText
+                            }
+                        }
+
+                        $initialArcState = Get-ArcAgentConnectionStateLocal -AzcmAgentPath $azcmagent
+
+                        if ($initialArcState.Connected) {
+                            Write-Output "Azure Connected Machine Agent is already connected."
+                            Write-Output $initialArcState.Output
+                            return
+                        }
+
+                        Write-Output "Connecting machine to Azure Arc subscription '$ArcSubscriptionId'..."
+
+                        $connectArgs = @(
+                            "connect",
+                            "--service-principal-id", $ServicePrincipalId,
+                            "--service-principal-secret", $ServicePrincipalSecret,
+                            "--tenant-id", $TenantId,
+                            "--subscription-id", $ArcSubscriptionId,
+                            "--resource-group", $ArcResourceGroupName,
+                            "--location", $ArcLocation,
+                            "--resource-name", $ResourceName,
+                            "--cloud", $ArcCloud
+                        )
+
+                        if (-not [string]::IsNullOrWhiteSpace($TagString)) {
+                            $connectArgs += @("--tags", $TagString)
+                        }
+
+                        $connectOutput = @(& $azcmagent @connectArgs 2>&1)
+                        $connectExitCode = $LASTEXITCODE
+                        $connectOutput | Set-Content -Path $connectLog -Encoding UTF8 -Force
+                        $connectOutput | ForEach-Object { Write-Output $_ }
+
+                        if ($connectExitCode -ne 0) {
+                            throw "azcmagent connect failed with exit code $connectExitCode. Log: $connectLog"
+                        }
+
+                        $verifyDeadline = (Get-Date).AddMinutes(5)
+                        $connected = $false
+
+                        $statusCheck = 0
+                        while ((Get-Date) -lt $verifyDeadline) {
+                            $statusCheck++
+                            $arcState = Get-ArcAgentConnectionStateLocal -AzcmAgentPath $azcmagent
+                            Write-Output "Arc connection status check ${statusCheck}: $($arcState.Status)"
+
+                            if ($arcState.Connected) {
+                                Write-Output $arcState.Output
+                                $connected = $true
+                                break
+                            }
+
+                            Start-Sleep -Seconds 10
+                        }
+
+                        if (-not $connected) {
+                            throw "Azure Connected Machine Agent did not report Connected status after azcmagent connect."
+                        }
+
+                        Write-Output "Azure Arc connection completed and verified."
+                    } `
+                    -ArgumentList @(
+                        $ArcAgentDownloadUrl,
+                        $ArcInstallFolder,
+                        $TenantId,
+                        $ArcSubscriptionId,
+                        $ArcResourceGroupName,
+                        $ArcLocation,
+                        $ArcCloud,
+                        $ServicePrincipalId,
+                        $ServicePrincipalSecret,
+                        $TagString,
+                        $VmName
+                    ) `
+                    -ErrorAction Stop
+            }
+
+            $output = Invoke-HyperVHostCommand `
+                -ScriptBlock $scriptBlock `
+                -ArgumentList @(
+                    $VmName,
+                    $GuestLocalAdminCredential,
+                    $ArcAgentDownloadUrl,
+                    $ArcInstallFolder,
+                    $TenantId,
+                    $ArcSubscriptionId,
+                    $ArcResourceGroupName,
+                    $ArcLocation,
+                    $ArcCloud,
+                    $ServicePrincipalId,
+                    $ServicePrincipalSecret,
+                    $tagString
                 )
 
-                if (-not [string]::IsNullOrWhiteSpace($TagString)) {
-                    $connectArgs += @("--tags", $TagString)
+            $output | ForEach-Object { Write-Log -Level "INFO" -Component "ARC" -Message $_ }
+            Write-Log -Level "SUCCESS" -Component "ARC" -Message "Azure Arc agent installation and connection succeeded for '$VmName'."
+            return
+        }
+        catch {
+            $lastError = $_
+            Write-Log -Level "WARN" -Component "ARC" -Message "Azure Arc attempt $attempt failed for '$VmName': $($_.Exception.Message)"
+
+            if ($attempt -lt $ArcInstallRetryCount) {
+                Write-Log -Level "INFO" -Component "ARC" -Message "Waiting for PowerShell Direct to become available before retrying Arc operation..."
+
+                $psDirectReady = $false
+                Wait-ForPowerShellDirect `
+                    -VmName $VmName `
+                    -GuestLocalAdminCredential $GuestLocalAdminCredential `
+                    -TimeoutMinutes 10 `
+                    -PollSeconds 20 `
+                    -Ready ([ref]$psDirectReady)
+
+                if (-not $psDirectReady) {
+                    Write-Log -Level "WARN" -Component "ARC" -Message "PowerShell Direct was not ready before Arc retry $($attempt + 1). The retry will still be attempted."
                 }
 
-                & $azcmagent @connectArgs
-
-                if ($LASTEXITCODE -ne 0) {
-                    throw "azcmagent connect failed with exit code $LASTEXITCODE."
-                }
-
-                Write-Output "Azure Arc connection command completed."
-            } `
-            -ArgumentList @(
-                $ArcAgentDownloadUrl,
-                $ArcInstallFolder,
-                $TenantId,
-                $ArcSubscriptionId,
-                $ArcResourceGroupName,
-                $ArcLocation,
-                $ArcCloud,
-                $ServicePrincipalId,
-                $ServicePrincipalSecret,
-                $TagString,
-                $VmName
-            )
+                Start-Sleep -Seconds $ArcInstallRetryDelaySeconds
+            }
+        }
     }
 
-    $output = Invoke-HyperVHostCommand `
-        -ScriptBlock $scriptBlock `
-        -ArgumentList @(
-            $VmName,
-            $GuestLocalAdminCredential,
-            $ArcAgentDownloadUrl,
-            $ArcInstallFolder,
-            $TenantId,
-            $ArcSubscriptionId,
-            $ArcResourceGroupName,
-            $ArcLocation,
-            $ArcCloud,
-            $ServicePrincipalId,
-            $ServicePrincipalSecret,
-            $tagString
-        )
+    if ($lastError) {
+        throw "Azure Arc installation/connection failed after $ArcInstallRetryCount attempts. Last error: $($lastError.Exception.Message)"
+    }
 
-    $output | ForEach-Object { Write-Log -Level "INFO" -Component "ARC" -Message $_ }
+    throw "Azure Arc installation/connection failed after $ArcInstallRetryCount attempts."
 }
 
 
@@ -1464,13 +2167,21 @@ try {
             -TemplatePath $templatePath `
             -GuestLocalAdminCredential $guestLocalAdminCredential
 
+        # For PowerShell Direct, explicitly scope the account to the guest VM's local SAM.
+        # Example: hybrid1-01\avdadmin rather than only avdadmin.
+        $guestLocalAdminCredentialForVm = New-LocalVmCredentialForPowerShellDirect `
+            -VmName $vmName `
+            -Credential $guestLocalAdminCredential
+
+        Write-Log -Level "INFO" -Component "GUEST" -Message "Using PowerShell Direct credential username '$($guestLocalAdminCredentialForVm.UserName)'."
+
         Start-Sleep -Seconds $VmCreationThrottleSeconds
 
         $psDirectReady = $false
 
         Wait-ForPowerShellDirect `
             -VmName $vmName `
-            -GuestLocalAdminCredential $guestLocalAdminCredential `
+            -GuestLocalAdminCredential $guestLocalAdminCredentialForVm `
             -TimeoutMinutes $WaitForPowerShellDirectTimeoutMinutes `
             -PollSeconds $WaitForPowerShellDirectPollSeconds `
             -Ready ([ref]$psDirectReady)
@@ -1481,25 +2192,27 @@ try {
 
         Invoke-GuestDomainJoin `
             -VmName $vmName `
-            -GuestLocalAdminCredential $guestLocalAdminCredential `
+            -GuestLocalAdminCredential $guestLocalAdminCredentialForVm `
             -DomainJoinCredential $domainJoinCredential
 
-        $psDirectReadyAfterJoin = $false
+        $domainJoinReady = $false
 
-        Wait-ForPowerShellDirect `
+        Wait-ForDomainJoinRestartAndStability `
             -VmName $vmName `
-            -GuestLocalAdminCredential $guestLocalAdminCredential `
+            -GuestLocalAdminCredential $guestLocalAdminCredentialForVm `
             -TimeoutMinutes $DomainJoinTimeoutMinutes `
-            -PollSeconds $DomainJoinPollSeconds `
-            -Ready ([ref]$psDirectReadyAfterJoin)
+            -PollSeconds $PostDomainJoinStablePollSeconds `
+            -RequiredStableChecks $PostDomainJoinStableChecks `
+            -SettleSeconds $PostDomainJoinSettleSeconds `
+            -Ready ([ref]$domainJoinReady)
 
-        if (-not $psDirectReadyAfterJoin) {
-            throw "PowerShell Direct did not return after domain join/restart for '$vmName'."
+        if (-not $domainJoinReady) {
+            throw "Guest '$vmName' did not become domain joined and stable after restart."
         }
 
         Install-ArcAgentInGuest `
             -VmName $vmName `
-            -GuestLocalAdminCredential $guestLocalAdminCredential `
+            -GuestLocalAdminCredential $guestLocalAdminCredentialForVm `
             -ServicePrincipalId $arcSpId `
             -ServicePrincipalSecret $arcSpSecret
 
