@@ -1,0 +1,25 @@
+@page
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="page-heading">
+    <div><h1>Dashboard</h1><p>Overview of your Azure Virtual Desktop environment</p></div>
+    <button class="primary-button">Refresh</button>
+</div>
+
+<section class="metrics">
+    <article class="metric"><span>Host Pool</span><strong>Not configured</strong><small>Complete onboarding</small></article>
+    <article class="metric"><span>Session Hosts</span><strong>—</strong><small>Awaiting Azure discovery</small></article>
+    <article class="metric"><span>Users</span><strong>—</strong><small>Active sessions</small></article>
+    <article class="metric"><span>Current Image</span><strong>—</strong><small>Gallery image version</small></article>
+    <article class="metric"><span>FSLogix Storage</span><strong>—</strong><small>Awaiting discovery</small></article>
+    <article class="metric"><span>Automation Jobs</span><strong>0</strong><small>Running jobs</small></article>
+</section>
+
+<section class="dashboard-grid">
+    <article class="panel"><h2>Host Pool Health</h2><div class="empty-state"><strong>No environment configured</strong><p>Run first-time setup to discover your AVD resources.</p><a class="primary-button link-button" href="/Onboarding">Start setup</a></div></article>
+    <article class="panel"><h2>Recent Jobs</h2><div class="empty-state"><p>Automation jobs will appear here.</p></div></article>
+    <article class="panel"><h2>FSLogix Storage</h2><div class="empty-state"><p>Storage utilisation will appear after discovery.</p></div></article>
+    <article class="panel"><h2>Image Versions</h2><div class="empty-state"><p>Azure Compute Gallery versions will appear here.</p></div></article>
+</section>
