@@ -10,7 +10,7 @@
     }
   },
   "postCreateCommand": "dotnet restore \"AVD Manager/src/AVDManager.Web/AVDManager.Web.csproj\"",
-  "postStartCommand": "bash -lc 'cd \"AVD Manager/src/AVDManager.Web\" && ASPNETCORE_URLS=http://0.0.0.0:5000 dotnet run --no-restore > /tmp/avd-manager.log 2>&1 &'",
+  "postStartCommand": "nohup bash -c 'cd \"/workspaces/Consultancy/AVD Manager/src/AVDManager.Web\" && exec dotnet run --no-restore --urls http://0.0.0.0:5000' >/tmp/avd-manager.log 2>&1 &",
   "customizations": {
     "vscode": {
       "extensions": [
