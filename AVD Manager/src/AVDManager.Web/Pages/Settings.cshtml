@@ -1,0 +1,29 @@
+@page
+@{
+    ViewData["Title"] = "Settings";
+}
+
+<div class="page-heading">
+    <div><h1>Settings</h1><p>Configure how AVD Manager behaves for this browser and environment.</p></div>
+</div>
+
+<section class="settings-grid">
+    <article class="panel settings-panel">
+        <h2>Appearance</h2>
+        <p class="muted">Choose the theme used by AVD Manager. Your preference is saved in this browser.</p>
+        <div class="theme-options">
+            <button type="button" class="theme-choice" data-set-theme="dark"><span>☾</span><b>Dark</b><small>Default</small></button>
+            <button type="button" class="theme-choice" data-set-theme="light"><span>☀</span><b>Light</b><small>White mode</small></button>
+        </div>
+    </article>
+    <article class="panel settings-panel">
+        <h2>Azure environment</h2>
+        <p class="muted">No Azure environment has been configured yet.</p>
+        <a class="primary-button link-button" href="/Onboarding">Run environment setup</a>
+    </article>
+    <article class="panel settings-panel">
+        <h2>Safety</h2>
+        <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Confirm destructive operations</b><small>Host replacement and profile deletion will require confirmation.</small></span></label>
+        <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Discovery is read-only</b><small>Initial Azure discovery will not change resources.</small></span></label>
+    </article>
+</section>
