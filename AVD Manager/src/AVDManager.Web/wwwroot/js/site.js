@@ -4,12 +4,20 @@
   root.dataset.theme = savedTheme;
 
   const toggle = document.getElementById('themeToggle');
-  const refreshIcon = () => { if (toggle) toggle.textContent = root.dataset.theme === 'dark' ? '☾' : '☀'; };
-  refreshIcon();
+  const refreshThemeUi = () => {
+    if (toggle) toggle.textContent = root.dataset.theme === 'dark' ? '☾' : '☀';
+    document.querySelectorAll('[data-set-theme]').forEach(button => {
+      button.classList.toggle('selected', button.dataset.setTheme === root.dataset.theme);
+    });
+  };
 
-  toggle?.addEventListener('click', () => {
-    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('avd-manager-theme', root.dataset.theme);
-    refreshIcon();
-  });
+  const setTheme = theme => {
+    root.dataset.theme = theme;
+    localStorage.setItem('avd-manager-theme', theme);
+    refreshThemeUi();
+  };
+
+  refreshThemeUi();
+  toggle?.addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+  document.querySelectorAll('[data-set-theme]').forEach(button => button.addEventListener('click', () => setTheme(button.dataset.setTheme)));
 })();
