@@ -1,0 +1,15 @@
+@page
+@{
+    ViewData["Title"] = "First-time setup";
+}
+
+<div class="setup-shell">
+    <div class="setup-intro"><span class="eyebrow">FIRST-TIME SETUP</span><h1>Connect your Azure environment</h1><p>AVD Manager will discover your subscriptions and supported AVD resources. You can review and change every suggested mapping before anything is saved.</p></div>
+    <ol class="setup-steps">
+        <li class="active"><strong>1</strong><div><b>Microsoft sign-in</b><span>Authenticate with Entra ID</span></div></li>
+        <li><strong>2</strong><div><b>Select subscription</b><span>Choose the Azure subscription to scan</span></div></li>
+        <li><strong>3</strong><div><b>Discover resources</b><span>Find host pools, images, storage and automation</span></div></li>
+        <li><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
+    </ol>
+    <div class="setup-card"><h2>Sign in to Microsoft Azure</h2><p>No passwords, storage keys or domain credentials are stored by AVD Manager.</p><button class="primary-button" disabled>Microsoft sign-in — Azure integration next</button></div>
+</div>
