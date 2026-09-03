@@ -1,0 +1,22 @@
+{
+  "name": "AVD Manager (.NET 8)",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:1-8.0-bookworm",
+  "workspaceFolder": "/workspaces/Consultancy",
+  "forwardPorts": [5000],
+  "portsAttributes": {
+    "5000": {
+      "label": "AVD Manager",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "postCreateCommand": "dotnet restore \"AVD Manager/src/AVDManager.Web/AVDManager.Web.csproj\"",
+  "postStartCommand": "bash -lc 'cd \"AVD Manager/src/AVDManager.Web\" && ASPNETCORE_URLS=http://0.0.0.0:5000 dotnet run --no-restore > /tmp/avd-manager.log 2>&1 &'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "ms-dotnettools.csharp"
+      ]
+    }
+  }
+}
