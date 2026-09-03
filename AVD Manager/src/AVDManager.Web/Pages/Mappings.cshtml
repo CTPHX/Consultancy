@@ -1,0 +1,89 @@
+@page
+@model AVDManager.Web.Pages.MappingsModel
+@{
+    ViewData["Title"] = "Review mappings";
+}
+
+<div class="setup-shell">
+    <div class="setup-intro">
+        <span class="eyebrow">FIRST-TIME SETUP</span>
+        <h1>Review environment mappings</h1>
+        <p>AVD Manager has grouped the discovered AVD resources into candidate host-pool environments. Review these suggestions before anything is saved.</p>
+    </div>
+
+    <ol class="setup-steps">
+        <li><strong>1</strong><div><b>Microsoft sign-in</b><span>Connected</span></div></li>
+        <li><strong>2</strong><div><b>Select subscription</b><span>Selected</span></div></li>
+        <li><strong>3</strong><div><b>Discover resources</b><span>Complete</span></div></li>
+        <li class="active"><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
+    </ol>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="setup-card"><h2>Mappings could not be built</h2><p>@Model.ErrorMessage</p></div>
+    }
+    else if (Model.Result is not null)
+    {
+        <div class="mapping-summary">
+            <div><span>Subscription</span><strong>@Model.Result.Subscription.DisplayName</strong></div>
+            <div><span>Host pools</span><strong>@Model.HostPools.Count</strong></div>
+            <div><span>Resources scanned</span><strong>@Model.Result.Resources.Count</strong></div>
+        </div>
+
+        @if (Model.HostPools.Count == 0)
+        {
+            <div class="setup-card"><h2>No host pools found</h2><p>There are no AVD host pools in the supported resource inventory for this subscription.</p></div>
+        }
+        else
+        {
+            <div class="mapping-list">
+                @foreach (var mapping in Model.HostPools)
+                {
+                    <section class="mapping-card">
+                        <div class="mapping-card-header">
+                            <div><span class="mapping-label">HOST POOL</span><h2>@mapping.HostPool.Name</h2><p>@mapping.HostPool.ResourceGroup · @mapping.HostPool.Location</p></div>
+                            <span class="confidence-badge">Discovered</span>
+                        </div>
+
+                        <div class="mapping-grid">
+                            <div class="mapping-field">
+                                <label>Application groups in same resource group</label>
+                                @if (mapping.ApplicationGroups.Count == 0)
+                                {
+                                    <span class="mapping-empty">No candidate application groups</span>
+                                }
+                                else
+                                {
+                                    @foreach (var appGroup in mapping.ApplicationGroups)
+                                    {
+                                        <span class="mapping-value">@appGroup.Name</span>
+                                    }
+                                }
+                            </div>
+                            <div class="mapping-field">
+                                <label>VMs in same resource group</label>
+                                @if (mapping.CandidateVirtualMachines.Count == 0)
+                                {
+                                    <span class="mapping-empty">No candidate VMs</span>
+                                }
+                                else
+                                {
+                                    @foreach (var vm in mapping.CandidateVirtualMachines)
+                                    {
+                                        <span class="mapping-value">@vm.Name</span>
+                                    }
+                                }
+                            </div>
+                        </div>
+                        <p class="mapping-note">These are candidate relationships only. AVD Manager will use resource properties and AVD-specific APIs to strengthen these mappings before they become saved configuration.</p>
+                    </section>
+                }
+            </div>
+        }
+
+        <div class="setup-actions">
+            <a class="secondary-button link-button" href="/Discovery?subscriptionId=@Model.Result.Subscription.SubscriptionId">Back to discovery</a>
+            <button class="primary-button" disabled title="Persistent environment storage is the next build step">Save environment</button>
+        </div>
+    }
+</div>
