@@ -1,6 +1,19 @@
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
+
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddRazorPages();
+builder.Services
+    .AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"))
+    .EnableTokenAcquisitionToCallDownstreamApi(new[] { "https://management.azure.com/user_impersonation" })
+    .AddInMemoryTokenCaches();
+
+builder.Services.AddAuthorization();
+builder.Services
+    .AddRazorPages()
+    .AddMicrosoftIdentityUI();
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
@@ -14,7 +27,9 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapRazorPages();
+app.MapControllers();
 
 app.Run();
