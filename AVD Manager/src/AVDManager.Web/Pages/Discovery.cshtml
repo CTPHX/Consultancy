@@ -1,0 +1,67 @@
+@page
+@model AVDManager.Web.Pages.DiscoveryModel
+@{
+    ViewData["Title"] = "Discover resources";
+}
+
+<div class="setup-shell">
+    <div class="setup-intro">
+        <span class="eyebrow">FIRST-TIME SETUP</span>
+        <h1>Discover AVD resources</h1>
+        <p>AVD Manager is performing a read-only scan using its application identity. Nothing in Azure is changed by this step.</p>
+    </div>
+
+    <ol class="setup-steps">
+        <li><strong>1</strong><div><b>Microsoft sign-in</b><span>Connected</span></div></li>
+        <li><strong>2</strong><div><b>Select subscription</b><span>Selected</span></div></li>
+        <li class="active"><strong>3</strong><div><b>Discover resources</b><span>Find host pools, images, storage and automation</span></div></li>
+        <li><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
+    </ol>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="setup-card">
+            <h2>Resource discovery could not complete</h2>
+            <p>@Model.ErrorMessage</p>
+            <a class="primary-button link-button" href="/Subscriptions">Choose another subscription</a>
+        </div>
+    }
+    else if (Model.Result is not null)
+    {
+        <div class="discovery-heading">
+            <div>
+                <h2>@Model.Result.Subscription.DisplayName</h2>
+                <p class="muted">@Model.Result.Subscription.SubscriptionId</p>
+            </div>
+            <div class="discovery-total"><strong>@Model.Result.Resources.Count</strong><span>supported resources found</span></div>
+        </div>
+
+        @if (Model.Result.Resources.Count == 0)
+        {
+            <div class="setup-card"><h2>No supported resources found</h2><p>The scan completed successfully, but no supported AVD Manager resource types were found.</p></div>
+        }
+        else
+        {
+            <div class="discovery-groups">
+                @foreach (var group in Model.Result.Resources.GroupBy(r => r.Category))
+                {
+                    <section class="resource-group-card">
+                        <div class="resource-group-title"><h3>@group.Key</h3><span>@group.Count()</span></div>
+                        @foreach (var resource in group)
+                        {
+                            <div class="resource-row">
+                                <div><strong>@resource.Name</strong><small>@resource.Type</small></div>
+                                <div><span>@resource.ResourceGroup</span><small>@resource.Location</small></div>
+                            </div>
+                        }
+                    </section>
+                }
+            </div>
+        }
+
+        <div class="setup-actions">
+            <a class="secondary-button link-button" href="/Subscriptions">Back</a>
+            <button class="primary-button" disabled title="Review mappings is the next build step">Continue to review mappings</button>
+        </div>
+    }
+</div>
