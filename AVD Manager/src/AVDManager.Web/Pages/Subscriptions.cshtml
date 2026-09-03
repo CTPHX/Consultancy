@@ -1,0 +1,50 @@
+@page
+@model AVDManager.Web.Pages.SubscriptionsModel
+@{
+    ViewData["Title"] = "Select subscription";
+}
+
+<div class="setup-shell">
+    <div class="setup-intro">
+        <span class="eyebrow">FIRST-TIME SETUP</span>
+        <h1>Select an Azure subscription</h1>
+        <p>These subscriptions are visible to the AVD Manager application identity. Your personal Azure RBAC is not used for discovery.</p>
+    </div>
+
+    <ol class="setup-steps">
+        <li><strong>1</strong><div><b>Microsoft sign-in</b><span>Connected</span></div></li>
+        <li class="active"><strong>2</strong><div><b>Select subscription</b><span>Choose the Azure subscription to scan</span></div></li>
+        <li><strong>3</strong><div><b>Discover resources</b><span>Find host pools, images, storage and automation</span></div></li>
+        <li><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
+    </ol>
+
+    <div class="setup-card">
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+        {
+            <h2>Azure discovery could not start</h2>
+            <p>@Model.ErrorMessage</p>
+            <p>Confirm that the <strong>AVD Manager</strong> Enterprise Application has the <strong>Reader</strong> role on the subscription you want to discover.</p>
+        }
+        else if (Model.Subscriptions.Count == 0)
+        {
+            <h2>No subscriptions found</h2>
+            <p>The AVD Manager application identity authenticated successfully, but Azure Resource Manager did not return any subscriptions.</p>
+            <p>Assign the AVD Manager Enterprise Application the <strong>Reader</strong> role on a subscription, then refresh this page.</p>
+        }
+        else
+        {
+            <h2>Subscriptions discovered</h2>
+            <p>Choose the subscription AVD Manager should scan first.</p>
+            <div class="subscription-list">
+                @foreach (var subscription in Model.Subscriptions)
+                {
+                    <a class="subscription-card" href="/Discovery?subscriptionId=@subscription.SubscriptionId">
+                        <strong>@subscription.DisplayName</strong>
+                        <span>@subscription.SubscriptionId</span>
+                        <small>@subscription.State</small>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</div>
