@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Identity;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Identity.Web;
@@ -19,15 +21,38 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services
     .AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"))
-    .EnableTokenAcquisitionToCallDownstreamApi(new[] { "https://management.azure.com/user_impersonation" })
-    .AddInMemoryTokenCaches();
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
 
 builder.Services.AddAuthorization();
 builder.Services
     .AddRazorPages()
     .AddMicrosoftIdentityUI();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient();
+
+builder.Services.AddSingleton<TokenCredential>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var tenantId = configuration["AzureAd:TenantId"];
+    var clientId = configuration["AzureAd:ClientId"];
+    var clientSecret = configuration["AzureAd:ClientSecret"];
+
+    if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
+        throw new InvalidOperationException("AzureAd TenantId and ClientId must be configured.");
+
+    // Development uses the App Registration client secret from .NET user-secrets.
+    // Production will replace this with the App Service managed identity.
+    if (!string.IsNullOrWhiteSpace(clientSecret))
+        return new ClientSecretCredential(tenantId, clientId, clientSecret);
+
+    return new DefaultAzureCredential(new DefaultAzureCredentialOptions
+    {
+        TenantId = tenantId,
+        ManagedIdentityClientId = clientId
+    });
+});
+
+builder.Services.AddScoped<AVDManager.Web.Services.AzureDiscoveryService>();
 
 var app = builder.Build();
 
