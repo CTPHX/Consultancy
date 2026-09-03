@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - AVD Manager</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="brand"><div class="brand-mark">A</div><div><b>AVD Manager</b><small>By Phoenix Software</small></div></div>
+        <nav>
+            <a href="/">Dashboard</a><a href="#">Session Hosts</a><a href="#">Deploy Hosts</a><a href="#">Image Management</a><a href="#">FSLogix Profiles</a><a href="#">Storage Management</a><a href="#">Automation Jobs</a><a href="#">Schedules</a><a href="#">Reports</a><a href="#">Audit Log</a><a href="#">Settings</a>
+        </nav>
+    </aside>
+    <div class="workspace">
+        <header class="topbar"><span class="environment">No environment selected</span><div class="top-actions"><button id="themeToggle" class="icon-button" title="Switch theme">☾</button><span>AVD Manager</span></div></header>
+        <main>@RenderBody()</main>
+    </div>
+</div>
+<script src="~/js/site.js" asp-append-version="true"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
