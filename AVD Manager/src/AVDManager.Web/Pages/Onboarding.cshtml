@@ -11,5 +11,18 @@
         <li><strong>3</strong><div><b>Discover resources</b><span>Find host pools, images, storage and automation</span></div></li>
         <li><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
     </ol>
-    <div class="setup-card"><h2>Sign in to Microsoft Azure</h2><p>No passwords, storage keys or domain credentials are stored by AVD Manager.</p><button class="primary-button" disabled>Microsoft sign-in — Azure integration next</button></div>
+    <div class="setup-card">
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <h2>Microsoft account connected</h2>
+            <p>Signed in as <strong>@User.Identity.Name</strong>. AVD Manager can now request read access to the Azure resources your account can access.</p>
+            <a class="primary-button link-button" href="/Subscriptions">Continue to subscriptions</a>
+        }
+        else
+        {
+            <h2>Sign in to Microsoft Azure</h2>
+            <p>No passwords, storage keys or domain credentials are stored by AVD Manager.</p>
+            <a class="primary-button link-button" asp-area="MicrosoftIdentity" asp-controller="Account" asp-action="SignIn" asp-route-redirectUri="/Onboarding">Sign in with Microsoft</a>
+        }
+    </div>
 </div>
