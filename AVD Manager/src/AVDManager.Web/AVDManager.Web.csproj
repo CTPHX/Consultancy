@@ -6,7 +6,7 @@
     <RootNamespace>AVDManager.Web</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Azure.Identity" Version="1.17.0" />
+    <PackageReference Include="Azure.Identity" Version="1.17.2" />
     <PackageReference Include="Microsoft.Identity.Web" Version="4.10.0" />
     <PackageReference Include="Microsoft.Identity.Web.UI" Version="4.10.0" />
   </ItemGroup>
