@@ -3,177 +3,28 @@
 @{
     ViewData["Title"] = "Review mappings";
 }
-
 <div class="setup-shell">
-    <div class="setup-intro">
-        <span class="eyebrow">FIRST-TIME SETUP</span>
-        <h1>Review environment mappings</h1>
-        <p>Review the discovered host pools and choose the resource groups AVD Manager should use as deployment defaults. These choices do not move or change any Azure resources.</p>
-    </div>
-
-    <ol class="setup-steps">
-        <li><strong>1</strong><div><b>Microsoft sign-in</b><span>Connected</span></div></li>
-        <li><strong>2</strong><div><b>Select subscription</b><span>Selected</span></div></li>
-        <li><strong>3</strong><div><b>Discover resources</b><span>Complete</span></div></li>
-        <li class="active"><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li>
-    </ol>
-
-    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
-    {
-        <div class="setup-card"><h2>Mappings could not be built</h2><p>@Model.ErrorMessage</p></div>
-    }
-    else if (Model.Result is not null)
-    {
-        <div class="mapping-summary">
-            <div><span>Subscription</span><strong>@Model.Result.Subscription.DisplayName</strong></div>
-            <div><span>Host pools</span><strong>@Model.HostPools.Count</strong></div>
-            <div><span>Resources scanned</span><strong>@Model.Result.Resources.Count</strong></div>
-        </div>
-
-        <div class="mapping-list">
-            @foreach (var mapping in Model.HostPools)
-            {
-                <section class="mapping-card">
-                    <div class="mapping-card-header">
-                        <div><span class="mapping-label">HOST POOL</span><h2>@mapping.HostPool.Name</h2><p>@mapping.HostPool.ResourceGroup · @mapping.HostPool.Location</p></div>
-                        <span class="confidence-badge">Discovered</span>
-                    </div>
-
-                    <h3 class="mapping-section-title">Deployment resource groups</h3>
-                    <div class="rg-default-grid">
-                        @foreach (var field in new[] {
-                            ("AVD resources", "avd", mapping.Defaults.Avd),
-                            ("Session host VMs", "sessionhosts", mapping.Defaults.SessionHosts),
-                            ("Networking", "network", mapping.Defaults.Network),
-                            ("Compute Gallery", "gallery", mapping.Defaults.Gallery),
-                            ("FSLogix / Storage", "storage", mapping.Defaults.Storage),
-                            ("Automation", "automation", mapping.Defaults.Automation),
-                            ("Key Vault", "keyvault", mapping.Defaults.KeyVault)
-                        })
-                        {
-                            <label class="rg-select-field">
-                                <span>@field.Item1</span>
-                                <select name="@($"{mapping.HostPool.Name}-{field.Item2}")">
-                                    <option value="">Not selected</option>
-                                    @foreach (var rg in Model.ResourceGroups)
-                                    {
-                                        if (string.Equals(rg, field.Item3, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            <option value="@rg" selected>@rg</option>
-                                        }
-                                        else
-                                        {
-                                            <option value="@rg">@rg</option>
-                                        }
-                                    }
-                                </select>
-                            </label>
-                        }
-                    </div>
-                    <p class="mapping-note">Suggested values come from discovered Azure relationships where available, then fall back to discovered resource locations. You can change them before the environment is saved.</p>
-
-                    <h3 class="mapping-section-title">AVD relationships</h3>
-                    <div class="mapping-grid">
-                        <div class="mapping-field">
-                            <label>Application groups linked by Azure</label>
-                            @if (mapping.ApplicationGroups.Count == 0)
-                            {
-                                <span class="mapping-empty">No application groups linked to this host pool</span>
-                            }
-                            else
-                            {
-                                @foreach (var appGroup in mapping.ApplicationGroups)
-                                {
-                                    <span class="mapping-value"><strong>@appGroup.Name</strong>@if (!string.IsNullOrWhiteSpace(appGroup.ApplicationGroupType)){<small> · @appGroup.ApplicationGroupType</small>}</span>
-                                }
-                            }
-                        </div>
-                        <div class="mapping-field">
-                            <label>Session host VMs linked by Azure</label>
-                            @if (mapping.SessionHosts.Count == 0)
-                            {
-                                <span class="mapping-empty">No registered session hosts reported by this host pool</span>
-                            }
-                            else
-                            {
-                                @foreach (var sessionHost in mapping.SessionHosts)
-                                {
-                                    <span class="mapping-value">
-                                        <strong>@sessionHost.Name</strong>
-                                        @if (!string.IsNullOrWhiteSpace(sessionHost.Status)){<small> · @sessionHost.Status</small>}
-                                        @if (sessionHost.Sessions.HasValue){<small> · @sessionHost.Sessions session(s)</small>}
-                                        @if (sessionHost.AllowNewSession.HasValue){<small> · @(sessionHost.AllowNewSession.Value ? "Accepting sessions" : "Drain mode")</small>}
-                                        @if (sessionHost.VirtualMachine is not null){<small> · VM: @sessionHost.VirtualMachine.Name · @sessionHost.VirtualMachine.ResourceGroup</small>}
-                                        else{<small> · Backing VM not matched in subscription scan</small>}
-                                    </span>
-                                }
-                            }
-                        </div>
-                    </div>
-
-                    <h3 class="mapping-section-title">Session host networking</h3>
-                    <div class="mapping-grid">
-                        @if (!mapping.SessionHosts.SelectMany(h => h.Networking).Any())
-                        {
-                            <div class="mapping-field"><span class="mapping-empty">No session-host NIC/subnet relationship discovered for this host pool</span></div>
-                        }
-                        else
-                        {
-                            @foreach (var sessionHost in mapping.SessionHosts.Where(h => h.Networking.Count > 0))
-                            {
-                                <div class="mapping-field">
-                                    <label>@sessionHost.Name</label>
-                                    @foreach (var network in sessionHost.Networking)
-                                    {
-                                        <span class="mapping-value">
-                                            <strong>NIC: @network.NicName</strong>
-                                            @if (network.VirtualNetwork is not null){<small> · VNet: @network.VirtualNetwork.Name · @network.VirtualNetwork.ResourceGroup</small>}
-                                            @if (!string.IsNullOrWhiteSpace(network.SubnetName)){<small> · Subnet: @network.SubnetName</small>}
-                                            @if (!string.IsNullOrWhiteSpace(network.IpConfigurationName)){<small> · IP config: @network.IpConfigurationName</small>}
-                                        </span>
-                                    }
-                                </div>
-                            }
-                        }
-                    </div>
-
-                    <h3 class="mapping-section-title">Session host images</h3>
-                    <div class="mapping-grid">
-                        @if (mapping.SessionHostImages.Count == 0)
-                        {
-                            <div class="mapping-field"><span class="mapping-empty">No image reference discovered from a registered session-host VM</span></div>
-                        }
-                        else
-                        {
-                            @foreach (var imageMapping in mapping.SessionHostImages)
-                            {
-                                var image = imageMapping.Image;
-                                <div class="mapping-field">
-                                    <label>@imageMapping.SessionHost.Name</label>
-                                    <span class="mapping-value">
-                                        <strong>@image.SourceType</strong>
-                                        @if (!string.IsNullOrWhiteSpace(image.GalleryName)){<small> · Gallery: @image.GalleryName</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.GalleryResourceGroup)){<small> · @image.GalleryResourceGroup</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.ImageDefinitionName)){<small> · Image: @image.ImageDefinitionName</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.ImageVersionName)){<small> · Version: @image.ImageVersionName</small>}
-                                        else if (!string.IsNullOrWhiteSpace(image.ExactVersion)){<small> · Exact version: @image.ExactVersion</small>}
-                                        else if (!string.IsNullOrWhiteSpace(image.Version)){<small> · Version: @image.Version</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.Publisher)){<small> · Publisher: @image.Publisher</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.Offer)){<small> · Offer: @image.Offer</small>}
-                                        @if (!string.IsNullOrWhiteSpace(image.Sku)){<small> · SKU: @image.Sku</small>}
-                                    </span>
-                                </div>
-                            }
-                        }
-                    </div>
-                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are matched to their backing VM, then traced through Azure networking and the VM storageProfile imageReference. Azure Compute Gallery image IDs are used to resolve the gallery, image definition and version; Marketplace and shared/community image references remain visible as fallbacks.</p>
-                </section>
-            }
-        </div>
-
-        <div class="setup-actions">
-            <a class="secondary-button link-button" href="/Discovery?subscriptionId=@Model.Result.Subscription.SubscriptionId">Back to discovery</a>
-            <button class="primary-button" disabled title="Persistent environment storage is not enabled yet">Save environment</button>
-        </div>
-    }
+    <div class="setup-intro"><span class="eyebrow">FIRST-TIME SETUP</span><h1>Review environment mappings</h1><p>Review the discovered host pools and choose the resource groups AVD Manager should use as deployment defaults. These choices do not move or change any Azure resources.</p></div>
+    <ol class="setup-steps"><li><strong>1</strong><div><b>Microsoft sign-in</b><span>Connected</span></div></li><li><strong>2</strong><div><b>Select subscription</b><span>Selected</span></div></li><li><strong>3</strong><div><b>Discover resources</b><span>Complete</span></div></li><li class="active"><strong>4</strong><div><b>Review mappings</b><span>Confirm the environment configuration</span></div></li></ol>
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)){<div class="setup-card"><h2>Mappings could not be built</h2><p>@Model.ErrorMessage</p></div>}
+else if (Model.Result is not null){
+<div class="mapping-summary"><div><span>Subscription</span><strong>@Model.Result.Subscription.DisplayName</strong></div><div><span>Host pools</span><strong>@Model.HostPools.Count</strong></div><div><span>Resources scanned</span><strong>@Model.Result.Resources.Count</strong></div></div>
+<form method="post" asp-page-handler="Save">
+<input type="hidden" asp-for="SubscriptionId" />
+<div class="mapping-list">
+@for (var index = 0; index < Model.HostPools.Count; index++){
+var mapping = Model.HostPools[index];
+<section class="mapping-card">
+<div class="mapping-card-header"><div><span class="mapping-label">HOST POOL</span><h2>@mapping.HostPool.Name</h2><p>@mapping.HostPool.ResourceGroup · @mapping.HostPool.Location</p></div><span class="confidence-badge">Discovered</span></div>
+<input type="hidden" name="MappingInputs[@index].HostPoolId" value="@mapping.HostPool.Id" />
+<h3 class="mapping-section-title">Deployment resource groups</h3><div class="rg-default-grid">
+@foreach (var field in new[]{("AVD resources","Avd",mapping.Defaults.Avd),("Session host VMs","SessionHosts",mapping.Defaults.SessionHosts),("Networking","Network",mapping.Defaults.Network),("Compute Gallery","Gallery",mapping.Defaults.Gallery),("FSLogix / Storage","Storage",mapping.Defaults.Storage),("Automation","Automation",mapping.Defaults.Automation),("Key Vault","KeyVault",mapping.Defaults.KeyVault)}){
+<label class="rg-select-field"><span>@field.Item1</span><select name="MappingInputs[@index].@field.Item2"><option value="">Not selected</option>@foreach(var rg in Model.ResourceGroups){if(string.Equals(rg,field.Item3,StringComparison.OrdinalIgnoreCase)){<option value="@rg" selected>@rg</option>}else{<option value="@rg">@rg</option>}}</select></label>}
+</div><p class="mapping-note">Suggested values come from discovered Azure relationships where available, then fall back to discovered resource locations. Your selections are saved as deployment defaults.</p>
+<h3 class="mapping-section-title">AVD relationships</h3><div class="mapping-grid"><div class="mapping-field"><label>Application groups linked by Azure</label>@if(mapping.ApplicationGroups.Count==0){<span class="mapping-empty">No application groups linked to this host pool</span>}else{@foreach(var a in mapping.ApplicationGroups){<span class="mapping-value"><strong>@a.Name</strong>@if(!string.IsNullOrWhiteSpace(a.ApplicationGroupType)){<small> · @a.ApplicationGroupType</small>}</span>}}</div>
+<div class="mapping-field"><label>Session host VMs linked by Azure</label>@if(mapping.SessionHosts.Count==0){<span class="mapping-empty">No registered session hosts reported by this host pool</span>}else{@foreach(var h in mapping.SessionHosts){<span class="mapping-value"><strong>@h.Name</strong>@if(!string.IsNullOrWhiteSpace(h.Status)){<small> · @h.Status</small>}@if(h.Sessions.HasValue){<small> · @h.Sessions session(s)</small>}@if(h.AllowNewSession.HasValue){<small> · @(h.AllowNewSession.Value?"Accepting sessions":"Drain mode")</small>}@if(h.VirtualMachine is not null){<small> · VM: @h.VirtualMachine.Name · @h.VirtualMachine.ResourceGroup</small>}</span>}}</div></div>
+<h3 class="mapping-section-title">Session host networking</h3><div class="mapping-grid">@if(!mapping.SessionHosts.SelectMany(h=>h.Networking).Any()){<div class="mapping-field"><span class="mapping-empty">No session-host NIC/subnet relationship discovered</span></div>}else{@foreach(var h in mapping.SessionHosts.Where(h=>h.Networking.Count>0)){<div class="mapping-field"><label>@h.Name</label>@foreach(var n in h.Networking){<span class="mapping-value"><strong>NIC: @n.NicName</strong>@if(n.VirtualNetwork is not null){<small> · VNet: @n.VirtualNetwork.Name · @n.VirtualNetwork.ResourceGroup</small>}@if(!string.IsNullOrWhiteSpace(n.SubnetName)){<small> · Subnet: @n.SubnetName</small>}</span>}</div>}}</div>
+<h3 class="mapping-section-title">Session host images</h3><div class="mapping-grid">@if(mapping.SessionHostImages.Count==0){<div class="mapping-field"><span class="mapping-empty">No image reference discovered</span></div>}else{@foreach(var im in mapping.SessionHostImages){<div class="mapping-field"><label>@im.SessionHost.Name</label><span class="mapping-value"><strong>@im.Image.SourceType</strong>@if(!string.IsNullOrWhiteSpace(im.Image.GalleryName)){<small> · Gallery: @im.Image.GalleryName</small>}@if(!string.IsNullOrWhiteSpace(im.Image.GalleryResourceGroup)){<small> · @im.Image.GalleryResourceGroup</small>}@if(!string.IsNullOrWhiteSpace(im.Image.ImageDefinitionName)){<small> · Image: @im.Image.ImageDefinitionName</small>}@if(!string.IsNullOrWhiteSpace(im.Image.ImageVersionName)){<small> · Version: @im.Image.ImageVersionName</small>}else if(!string.IsNullOrWhiteSpace(im.Image.ExactVersion)){<small> · Exact version: @im.Image.ExactVersion</small>}</span></div>}}</div>
+</section>}
+</div><div class="setup-actions"><a class="secondary-button link-button" href="/Discovery?subscriptionId=@Model.Result.Subscription.SubscriptionId">Back to discovery</a><button class="primary-button" type="submit">Save environment</button></div></form>}
 </div>
