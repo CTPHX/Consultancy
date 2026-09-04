@@ -72,31 +72,28 @@
                     </div>
                     <p class="mapping-note">Suggested values come from discovered resource locations. You can change them before the environment is saved.</p>
 
-                    <h3 class="mapping-section-title">Candidate AVD relationships</h3>
+                    <h3 class="mapping-section-title">AVD relationships</h3>
                     <div class="mapping-grid">
                         <div class="mapping-field">
-                            <label>Application groups in same resource group</label>
-                            @foreach (var appGroup in mapping.ApplicationGroups)
+                            <label>Application groups linked by Azure</label>
+                            @if (mapping.ApplicationGroups.Count == 0)
                             {
-                                <span class="mapping-value">@appGroup.Name</span>
-                            }
-                        </div>
-                        <div class="mapping-field">
-                            <label>VMs in same resource group</label>
-                            @if (mapping.CandidateVirtualMachines.Count == 0)
-                            {
-                                <span class="mapping-empty">No candidate VMs</span>
+                                <span class="mapping-empty">No application groups linked to this host pool</span>
                             }
                             else
                             {
-                                @foreach (var vm in mapping.CandidateVirtualMachines)
+                                @foreach (var appGroup in mapping.ApplicationGroups)
                                 {
-                                    <span class="mapping-value">@vm.Name</span>
+                                    <span class="mapping-value"><strong>@appGroup.Name</strong>@if (!string.IsNullOrWhiteSpace(appGroup.ApplicationGroupType)){<small> · @appGroup.ApplicationGroupType</small>}</span>
                                 }
                             }
                         </div>
+                        <div class="mapping-field">
+                            <label>Session host VMs</label>
+                            <span class="mapping-empty">Registered session-host discovery is the next relationship to add</span>
+                        </div>
                     </div>
-                    <p class="mapping-note">Candidate relationships are not yet saved. AVD-specific relationship discovery will replace the resource-group heuristic before configuration is persisted.</p>
+                    <p class="mapping-note">Application-group mappings now use Azure Virtual Desktop's hostPoolArmPath relationship rather than resource-group proximity.</p>
                 </section>
             }
         </div>
