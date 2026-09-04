@@ -70,7 +70,7 @@
                             </label>
                         }
                     </div>
-                    <p class="mapping-note">Suggested values come from discovered resource locations. You can change them before the environment is saved.</p>
+                    <p class="mapping-note">Suggested values come from discovered Azure relationships where available, then fall back to discovered resource locations. You can change them before the environment is saved.</p>
 
                     <h3 class="mapping-section-title">AVD relationships</h3>
                     <div class="mapping-grid">
@@ -89,11 +89,28 @@
                             }
                         </div>
                         <div class="mapping-field">
-                            <label>Session host VMs</label>
-                            <span class="mapping-empty">Registered session-host discovery is the next relationship to add</span>
+                            <label>Session host VMs linked by Azure</label>
+                            @if (mapping.SessionHosts.Count == 0)
+                            {
+                                <span class="mapping-empty">No registered session hosts reported by this host pool</span>
+                            }
+                            else
+                            {
+                                @foreach (var sessionHost in mapping.SessionHosts)
+                                {
+                                    <span class="mapping-value">
+                                        <strong>@sessionHost.Name</strong>
+                                        @if (!string.IsNullOrWhiteSpace(sessionHost.Status)){<small> · @sessionHost.Status</small>}
+                                        @if (sessionHost.Sessions.HasValue){<small> · @sessionHost.Sessions session(s)</small>}
+                                        @if (sessionHost.AllowNewSession.HasValue){<small> · @(sessionHost.AllowNewSession.Value ? "Accepting sessions" : "Drain mode")</small>}
+                                        @if (sessionHost.VirtualMachine is not null){<small> · VM: @sessionHost.VirtualMachine.Name · @sessionHost.VirtualMachine.ResourceGroup</small>}
+                                        else{<small> · Backing VM not matched in subscription scan</small>}
+                                    </span>
+                                }
+                            }
                         </div>
                     </div>
-                    <p class="mapping-note">Application-group mappings now use Azure Virtual Desktop's hostPoolArmPath relationship rather than resource-group proximity.</p>
+                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are read from each host pool's Azure Virtual Desktop sessionHosts collection and matched to their backing Azure VM.</p>
                 </section>
             }
         </div>
