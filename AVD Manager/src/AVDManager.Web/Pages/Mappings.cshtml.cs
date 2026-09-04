@@ -32,7 +32,7 @@ public sealed class MappingsModel : PageModel
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(rg => rg)
                 .ToList();
-            HostPools = BuildMappings(Result.Resources);
+            HostPools = BuildMappings(Result);
         }
         catch (Exception ex)
         {
@@ -41,11 +41,11 @@ public sealed class MappingsModel : PageModel
         }
     }
 
-    private static IReadOnlyList<HostPoolMapping> BuildMappings(IReadOnlyList<AzureDiscoveredResource> resources)
+    private static IReadOnlyList<HostPoolMapping> BuildMappings(AzureDiscoveryResult result)
     {
+        var resources = result.Resources;
         var hostPools = resources.Where(r => r.Category == "AVD Host Pools").ToList();
         var applicationGroups = resources.Where(r => r.Category == "AVD Application Groups").ToList();
-        var vms = resources.Where(r => r.Category == "Virtual Machines").ToList();
 
         return hostPools.Select(hostPool =>
         {
@@ -56,20 +56,25 @@ public sealed class MappingsModel : PageModel
                 .ThenBy(a => a.Name)
                 .ToList();
 
-            var sameRgVms = vms
-                .Where(v => v.ResourceGroup.Equals(hostPool.ResourceGroup, StringComparison.OrdinalIgnoreCase))
+            var sessionHosts = result.SessionHosts
+                .Where(h => ArmIdEquals(h.HostPoolArmPath, hostPool.Id))
+                .OrderBy(h => h.Name)
                 .ToList();
+
+            var authoritativeVmResourceGroup = sessionHosts
+                .Select(h => h.VirtualMachine?.ResourceGroup)
+                .FirstOrDefault(rg => !string.IsNullOrWhiteSpace(rg));
 
             var defaults = new ResourceGroupDefaults(
                 Avd: hostPool.ResourceGroup,
-                SessionHosts: FirstResourceGroup(resources, "Virtual Machines"),
+                SessionHosts: authoritativeVmResourceGroup ?? FirstResourceGroup(resources, "Virtual Machines"),
                 Network: FirstResourceGroup(resources, "Virtual Networks"),
                 Gallery: FirstResourceGroup(resources, "Compute Galleries"),
                 Storage: FirstResourceGroup(resources, "Storage Accounts"),
                 Automation: FirstResourceGroup(resources, "Automation Accounts"),
                 KeyVault: FirstResourceGroup(resources, "Key Vaults"));
 
-            return new HostPoolMapping(hostPool, linkedApps, sameRgVms, defaults);
+            return new HostPoolMapping(hostPool, linkedApps, sessionHosts, defaults);
         }).OrderBy(m => m.HostPool.Name).ToList();
     }
 
@@ -88,7 +93,7 @@ public sealed class MappingsModel : PageModel
 public sealed record HostPoolMapping(
     AzureDiscoveredResource HostPool,
     IReadOnlyList<AzureDiscoveredResource> ApplicationGroups,
-    IReadOnlyList<AzureDiscoveredResource> CandidateVirtualMachines,
+    IReadOnlyList<AzureSessionHost> SessionHosts,
     ResourceGroupDefaults Defaults);
 
 public sealed record ResourceGroupDefaults(
