@@ -89,12 +89,17 @@ public sealed class AzureDiscoveryService
         }
 
         resources = await EnrichAvdApplicationGroupsAsync(resources, cancellationToken);
+        var sessionHosts = await DiscoverAvdSessionHostsAsync(resources, cancellationToken);
 
         return new AzureDiscoveryResult(
             subscription,
             resources
                 .OrderBy(r => r.Category)
                 .ThenBy(r => r.Name)
+                .ToList(),
+            sessionHosts
+                .OrderBy(h => h.HostPoolArmPath)
+                .ThenBy(h => h.Name)
                 .ToList());
     }
 
@@ -141,6 +146,98 @@ public sealed class AzureDiscoveryService
         return enriched;
     }
 
+    private async Task<List<AzureSessionHost>> DiscoverAvdSessionHostsAsync(
+        IReadOnlyList<AzureDiscoveredResource> resources,
+        CancellationToken cancellationToken)
+    {
+        var discovered = new List<AzureSessionHost>();
+        var hostPools = resources.Where(r => r.Category == "AVD Host Pools" && !string.IsNullOrWhiteSpace(r.Id));
+        var virtualMachines = resources.Where(r => r.Category == "Virtual Machines").ToList();
+
+        foreach (var hostPool in hostPools)
+        {
+            string? nextUrl = $"https://management.azure.com{hostPool.Id}/sessionHosts?api-version={DesktopVirtualizationApiVersion}";
+
+            while (!string.IsNullOrWhiteSpace(nextUrl))
+            {
+                using var document = await GetArmJsonAsync(nextUrl, cancellationToken);
+                if (document.RootElement.TryGetProperty("value", out var values))
+                {
+                    foreach (var item in values.EnumerateArray())
+                    {
+                        var id = item.TryGetProperty("id", out var idElement) ? idElement.GetString() ?? string.Empty : string.Empty;
+                        var rawName = item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
+                        var name = rawName.Contains('/') ? rawName[(rawName.LastIndexOf('/') + 1)..] : rawName;
+
+                        string? resourceId = null;
+                        string? virtualMachineId = null;
+                        string? status = null;
+                        string? statusTimestamp = null;
+                        bool? allowNewSession = null;
+                        int? sessions = null;
+
+                        if (item.TryGetProperty("properties", out var properties))
+                        {
+                            if (properties.TryGetProperty("resourceId", out var resourceIdElement))
+                                resourceId = resourceIdElement.GetString();
+                            if (properties.TryGetProperty("virtualMachineId", out var vmIdElement))
+                                virtualMachineId = vmIdElement.GetString();
+                            if (properties.TryGetProperty("status", out var statusElement))
+                                status = statusElement.GetString();
+                            if (properties.TryGetProperty("statusTimestamp", out var statusTimestampElement))
+                                statusTimestamp = statusTimestampElement.GetString();
+                            if (properties.TryGetProperty("allowNewSession", out var allowNewSessionElement) &&
+                                (allowNewSessionElement.ValueKind == JsonValueKind.True || allowNewSessionElement.ValueKind == JsonValueKind.False))
+                                allowNewSession = allowNewSessionElement.GetBoolean();
+                            if (properties.TryGetProperty("sessions", out var sessionsElement) && sessionsElement.TryGetInt32(out var sessionCount))
+                                sessions = sessionCount;
+                        }
+
+                        var backingVm = FindBackingVirtualMachine(virtualMachines, resourceId, name);
+
+                        discovered.Add(new AzureSessionHost(
+                            id,
+                            name,
+                            hostPool.Id,
+                            resourceId,
+                            virtualMachineId,
+                            status,
+                            statusTimestamp,
+                            allowNewSession,
+                            sessions,
+                            backingVm));
+                    }
+                }
+
+                nextUrl = document.RootElement.TryGetProperty("nextLink", out var nextLink)
+                    ? nextLink.GetString()
+                    : null;
+            }
+        }
+
+        return discovered;
+    }
+
+    private static AzureDiscoveredResource? FindBackingVirtualMachine(
+        IReadOnlyList<AzureDiscoveredResource> virtualMachines,
+        string? resourceId,
+        string sessionHostName)
+    {
+        if (!string.IsNullOrWhiteSpace(resourceId))
+        {
+            var exact = virtualMachines.FirstOrDefault(vm => ArmIdEquals(vm.Id, resourceId));
+            if (exact is not null)
+                return exact;
+        }
+
+        var shortHostName = sessionHostName.Split('.', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(shortHostName))
+            return null;
+
+        return virtualMachines.FirstOrDefault(vm =>
+            vm.Name.Equals(shortHostName, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task<JsonDocument> GetArmJsonAsync(string url, CancellationToken cancellationToken)
     {
         var token = await _credential.GetTokenAsync(new TokenRequestContext(ArmScopes), cancellationToken);
@@ -155,6 +252,9 @@ public sealed class AzureDiscoveryService
 
         return JsonDocument.Parse(body);
     }
+
+    private static bool ArmIdEquals(string? left, string? right) =>
+        string.Equals(left?.TrimEnd('/'), right?.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
 
     private static string GetResourceGroup(JsonElement item)
     {
@@ -210,6 +310,19 @@ public sealed record AzureDiscoveredResource(
     string? WorkspaceArmPath,
     string? ApplicationGroupType);
 
+public sealed record AzureSessionHost(
+    string Id,
+    string Name,
+    string HostPoolArmPath,
+    string? ResourceId,
+    string? VirtualMachineId,
+    string? Status,
+    string? StatusTimestamp,
+    bool? AllowNewSession,
+    int? Sessions,
+    AzureDiscoveredResource? VirtualMachine);
+
 public sealed record AzureDiscoveryResult(
     AzureSubscription Subscription,
-    IReadOnlyList<AzureDiscoveredResource> Resources);
+    IReadOnlyList<AzureDiscoveredResource> Resources,
+    IReadOnlyList<AzureSessionHost> SessionHosts);
