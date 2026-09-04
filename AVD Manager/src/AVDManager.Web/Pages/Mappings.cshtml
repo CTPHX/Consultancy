@@ -136,7 +136,37 @@
                             }
                         }
                     </div>
-                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are read from each host pool, matched to their backing VM, then traced through the VM network profile to its NIC, subnet and virtual network.</p>
+
+                    <h3 class="mapping-section-title">Session host images</h3>
+                    <div class="mapping-grid">
+                        @if (mapping.SessionHostImages.Count == 0)
+                        {
+                            <div class="mapping-field"><span class="mapping-empty">No image reference discovered from a registered session-host VM</span></div>
+                        }
+                        else
+                        {
+                            @foreach (var imageMapping in mapping.SessionHostImages)
+                            {
+                                var image = imageMapping.Image;
+                                <div class="mapping-field">
+                                    <label>@imageMapping.SessionHost.Name</label>
+                                    <span class="mapping-value">
+                                        <strong>@image.SourceType</strong>
+                                        @if (!string.IsNullOrWhiteSpace(image.GalleryName)){<small> · Gallery: @image.GalleryName</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.GalleryResourceGroup)){<small> · @image.GalleryResourceGroup</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.ImageDefinitionName)){<small> · Image: @image.ImageDefinitionName</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.ImageVersionName)){<small> · Version: @image.ImageVersionName</small>}
+                                        else if (!string.IsNullOrWhiteSpace(image.ExactVersion)){<small> · Exact version: @image.ExactVersion</small>}
+                                        else if (!string.IsNullOrWhiteSpace(image.Version)){<small> · Version: @image.Version</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.Publisher)){<small> · Publisher: @image.Publisher</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.Offer)){<small> · Offer: @image.Offer</small>}
+                                        @if (!string.IsNullOrWhiteSpace(image.Sku)){<small> · SKU: @image.Sku</small>}
+                                    </span>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are matched to their backing VM, then traced through Azure networking and the VM storageProfile imageReference. Azure Compute Gallery image IDs are used to resolve the gallery, image definition and version; Marketplace and shared/community image references remain visible as fallbacks.</p>
                 </section>
             }
         </div>
