@@ -12,9 +12,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
                                ForwardedHeaders.XForwardedProto |
                                ForwardedHeaders.XForwardedHost;
-
-    // Codespaces and App Service terminate HTTPS in front of Kestrel.
-    // Trust the platform proxy headers so redirect URIs use the public HTTPS host.
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
@@ -24,9 +21,7 @@ builder.Services
     .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
 
 builder.Services.AddAuthorization();
-builder.Services
-    .AddRazorPages()
-    .AddMicrosoftIdentityUI();
+builder.Services.AddRazorPages().AddMicrosoftIdentityUI();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 
@@ -40,8 +35,6 @@ builder.Services.AddSingleton<TokenCredential>(sp =>
     if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientId))
         throw new InvalidOperationException("AzureAd TenantId and ClientId must be configured.");
 
-    // Development uses the App Registration client secret from .NET user-secrets.
-    // Production will replace this with the App Service managed identity.
     if (!string.IsNullOrWhiteSpace(clientSecret))
         return new ClientSecretCredential(tenantId, clientId, clientSecret);
 
@@ -54,9 +47,9 @@ builder.Services.AddSingleton<TokenCredential>(sp =>
 
 builder.Services.AddScoped<AVDManager.Web.Services.AzureDiscoveryService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureVmImageDiscoveryService>();
+builder.Services.AddSingleton<AVDManager.Web.Services.EnvironmentConfigurationStore>();
 
 var app = builder.Build();
-
 app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
@@ -72,5 +65,4 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapRazorPages();
 app.MapControllers();
-
 app.Run();
