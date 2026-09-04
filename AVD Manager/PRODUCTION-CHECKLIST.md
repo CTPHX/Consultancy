@@ -55,6 +55,9 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 ## Data and persistence
 
 - [ ] Move environment/customer configuration from browser/local placeholders to persistent storage (planned Azure SQL).
+- [ ] Persist the selected subscription/environment so Settings can re-scan the configured Azure subscription without asking the user to select it again.
+- [ ] Persist discovery/mapping snapshots and record the last successful scan timestamp so re-scans can safely refresh changed Azure resources.
+- [ ] Define how re-scan handles resources that were added, removed, renamed or moved while preserving explicit administrator mapping overrides.
 - [ ] Encrypt sensitive configuration at rest.
 - [ ] Add customer/tenant/environment isolation to every persisted entity.
 - [ ] Add database migrations, backup, restore and retention strategy.
@@ -99,3 +102,4 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Data-protection keys are currently stored in the Codespaces container filesystem and are not durable.
 - [ ] No production `/Error` page has yet been implemented.
 - [ ] Azure discovery implementation is not yet complete.
+- [ ] Settings re-scan currently falls back to subscription selection until environment persistence is implemented; production should re-scan the persisted configured environment directly.
