@@ -9,6 +9,8 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Configure final production App Service redirect URI(s).
 - [ ] Confirm supported account type for commercial model (single-tenant vs multi-tenant SaaS).
 - [ ] Review whether Azure Service Management delegated `user_impersonation` is still required. Remove if app-only discovery is adopted.
+- [ ] Move sign-in explicitly to the modern OpenID Connect authorization-code flow for production and remove the development dependency on Entra implicit/hybrid `id_token` issuance.
+- [ ] Disable the App Registration's **Implicit grant and hybrid flows → ID tokens** setting once the production authorization-code flow is verified.
 - [ ] Add explicit sign-out flow and production front-channel logout URI.
 - [ ] Add application authorization / AVD Manager roles so successful Entra sign-in alone does not grant admin access.
 - [ ] Review Conditional Access compatibility and MFA expectations.
@@ -92,6 +94,7 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Codespaces port 5000 is temporarily public for Entra callback testing; do not treat this as a production hosting pattern.
 - [ ] Codespaces uses a temporary client secret via .NET user-secrets.
 - [ ] Localhost and Codespaces redirect URIs are development-only.
+- [ ] Entra **Implicit grant and hybrid flows → ID tokens** is temporarily enabled for Codespaces/development sign-in and must be removed after production authorization-code flow is verified.
 - [ ] ASP.NET currently uses in-memory token caches; production scale-out requires a shared/distributed token cache strategy if delegated tokens remain in use.
 - [ ] Data-protection keys are currently stored in the Codespaces container filesystem and are not durable.
 - [ ] No production `/Error` page has yet been implemented.
