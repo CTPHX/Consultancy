@@ -1,4 +1,5 @@
 @page
+@model AVDManager.Web.Pages.SettingsModel
 @{
     ViewData["Title"] = "Settings";
 }
@@ -18,12 +19,28 @@
     </article>
     <article class="panel settings-panel">
         <h2>Azure environment</h2>
-        <p class="muted">No Azure environment has been configured yet.</p>
-        <a class="primary-button link-button" href="/Onboarding">Run environment setup</a>
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+        {
+            <p class="muted">@Model.ErrorMessage</p>
+        }
+        else if (Model.Subscription is not null)
+        {
+            <p class="muted">Connected subscription: <strong>@Model.Subscription.DisplayName</strong></p>
+            <p class="muted">Re-scan Azure after host pools, session hosts, images, storage, networking or other resources change. Discovery is read-only and you can review mappings again before saving.</p>
+            <form method="post" asp-page-handler="Rescan">
+                <input type="hidden" asp-for="SubscriptionId" />
+                <button type="submit" class="primary-button">Re-scan Azure subscription</button>
+            </form>
+        }
+        else
+        {
+            <p class="muted">No persisted Azure environment has been configured yet. Until environment storage is enabled, choose the subscription again to perform a fresh scan.</p>
+            <a class="primary-button link-button" href="/Subscriptions">Select subscription &amp; re-scan</a>
+        }
     </article>
     <article class="panel settings-panel">
         <h2>Safety</h2>
         <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Confirm destructive operations</b><small>Host replacement and profile deletion will require confirmation.</small></span></label>
-        <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Discovery is read-only</b><small>Initial Azure discovery will not change resources.</small></span></label>
+        <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Discovery is read-only</b><small>Azure discovery and re-scans do not change resources.</small></span></label>
     </article>
 </section>
