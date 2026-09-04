@@ -6,6 +6,7 @@ namespace AVDManager.Web.Services;
 
 public sealed class AzureDiscoveryService
 {
+    private const string DesktopVirtualizationApiVersion = "2024-04-03";
     private static readonly string[] ArmScopes = ["https://management.azure.com/.default"];
     private readonly TokenCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -75,7 +76,10 @@ public sealed class AzureDiscoveryService
                         type,
                         item.TryGetProperty("location", out var location) ? location.GetString() ?? "Global" : "Global",
                         GetResourceGroup(item),
-                        category));
+                        category,
+                        HostPoolArmPath: null,
+                        WorkspaceArmPath: null,
+                        ApplicationGroupType: null));
                 }
             }
 
@@ -84,12 +88,57 @@ public sealed class AzureDiscoveryService
                 : null;
         }
 
+        resources = await EnrichAvdApplicationGroupsAsync(resources, cancellationToken);
+
         return new AzureDiscoveryResult(
             subscription,
             resources
                 .OrderBy(r => r.Category)
                 .ThenBy(r => r.Name)
                 .ToList());
+    }
+
+    private async Task<List<AzureDiscoveredResource>> EnrichAvdApplicationGroupsAsync(
+        List<AzureDiscoveredResource> resources,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new List<AzureDiscoveredResource>(resources.Count);
+
+        foreach (var resource in resources)
+        {
+            if (resource.Category != "AVD Application Groups" || string.IsNullOrWhiteSpace(resource.Id))
+            {
+                enriched.Add(resource);
+                continue;
+            }
+
+            using var document = await GetArmJsonAsync(
+                $"https://management.azure.com{resource.Id}?api-version={DesktopVirtualizationApiVersion}",
+                cancellationToken);
+
+            string? hostPoolArmPath = null;
+            string? workspaceArmPath = null;
+            string? applicationGroupType = null;
+
+            if (document.RootElement.TryGetProperty("properties", out var properties))
+            {
+                if (properties.TryGetProperty("hostPoolArmPath", out var hostPool))
+                    hostPoolArmPath = hostPool.GetString();
+                if (properties.TryGetProperty("workspaceArmPath", out var workspace))
+                    workspaceArmPath = workspace.GetString();
+                if (properties.TryGetProperty("applicationGroupType", out var appType))
+                    applicationGroupType = appType.GetString();
+            }
+
+            enriched.Add(resource with
+            {
+                HostPoolArmPath = hostPoolArmPath,
+                WorkspaceArmPath = workspaceArmPath,
+                ApplicationGroupType = applicationGroupType
+            });
+        }
+
+        return enriched;
     }
 
     private async Task<JsonDocument> GetArmJsonAsync(string url, CancellationToken cancellationToken)
@@ -156,7 +205,10 @@ public sealed record AzureDiscoveredResource(
     string Type,
     string Location,
     string ResourceGroup,
-    string Category);
+    string Category,
+    string? HostPoolArmPath,
+    string? WorkspaceArmPath,
+    string? ApplicationGroupType);
 
 public sealed record AzureDiscoveryResult(
     AzureSubscription Subscription,
