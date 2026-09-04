@@ -28,7 +28,9 @@ public sealed class MappingsModel : PageModel
             Result = await _azureDiscovery.DiscoverSubscriptionAsync(subscriptionId, cancellationToken);
             ResourceGroups = Result.Resources
                 .Select(r => r.ResourceGroup)
+                .Concat(Result.SessionHosts.SelectMany(h => h.Networking).Select(n => n.VirtualNetwork?.ResourceGroup))
                 .Where(rg => !string.IsNullOrWhiteSpace(rg))
+                .Select(rg => rg!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(rg => rg)
                 .ToList();
@@ -65,10 +67,15 @@ public sealed class MappingsModel : PageModel
                 .Select(h => h.VirtualMachine?.ResourceGroup)
                 .FirstOrDefault(rg => !string.IsNullOrWhiteSpace(rg));
 
+            var authoritativeNetworkResourceGroup = sessionHosts
+                .SelectMany(h => h.Networking)
+                .Select(n => n.VirtualNetwork?.ResourceGroup)
+                .FirstOrDefault(rg => !string.IsNullOrWhiteSpace(rg));
+
             var defaults = new ResourceGroupDefaults(
                 Avd: hostPool.ResourceGroup,
                 SessionHosts: authoritativeVmResourceGroup ?? FirstResourceGroup(resources, "Virtual Machines"),
-                Network: FirstResourceGroup(resources, "Virtual Networks"),
+                Network: authoritativeNetworkResourceGroup ?? FirstResourceGroup(resources, "Virtual Networks"),
                 Gallery: FirstResourceGroup(resources, "Compute Galleries"),
                 Storage: FirstResourceGroup(resources, "Storage Accounts"),
                 Automation: FirstResourceGroup(resources, "Automation Accounts"),
