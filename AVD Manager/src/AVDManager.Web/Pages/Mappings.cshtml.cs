@@ -49,8 +49,11 @@ public sealed class MappingsModel : PageModel
 
         return hostPools.Select(hostPool =>
         {
-            var sameRgApps = applicationGroups
-                .Where(a => a.ResourceGroup.Equals(hostPool.ResourceGroup, StringComparison.OrdinalIgnoreCase))
+            var linkedApps = applicationGroups
+                .Where(a => !string.IsNullOrWhiteSpace(a.HostPoolArmPath) &&
+                            ArmIdEquals(a.HostPoolArmPath, hostPool.Id))
+                .OrderBy(a => a.ApplicationGroupType)
+                .ThenBy(a => a.Name)
                 .ToList();
 
             var sameRgVms = vms
@@ -66,9 +69,12 @@ public sealed class MappingsModel : PageModel
                 Automation: FirstResourceGroup(resources, "Automation Accounts"),
                 KeyVault: FirstResourceGroup(resources, "Key Vaults"));
 
-            return new HostPoolMapping(hostPool, sameRgApps, sameRgVms, defaults);
+            return new HostPoolMapping(hostPool, linkedApps, sameRgVms, defaults);
         }).OrderBy(m => m.HostPool.Name).ToList();
     }
+
+    private static bool ArmIdEquals(string? left, string? right) =>
+        string.Equals(left?.TrimEnd('/'), right?.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
 
     private static string? FirstResourceGroup(IReadOnlyList<AzureDiscoveredResource> resources, string category) =>
         resources
