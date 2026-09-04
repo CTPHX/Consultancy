@@ -110,7 +110,33 @@
                             }
                         </div>
                     </div>
-                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are read from each host pool's Azure Virtual Desktop sessionHosts collection and matched to their backing Azure VM.</p>
+
+                    <h3 class="mapping-section-title">Session host networking</h3>
+                    <div class="mapping-grid">
+                        @if (!mapping.SessionHosts.SelectMany(h => h.Networking).Any())
+                        {
+                            <div class="mapping-field"><span class="mapping-empty">No session-host NIC/subnet relationship discovered for this host pool</span></div>
+                        }
+                        else
+                        {
+                            @foreach (var sessionHost in mapping.SessionHosts.Where(h => h.Networking.Count > 0))
+                            {
+                                <div class="mapping-field">
+                                    <label>@sessionHost.Name</label>
+                                    @foreach (var network in sessionHost.Networking)
+                                    {
+                                        <span class="mapping-value">
+                                            <strong>NIC: @network.NicName</strong>
+                                            @if (network.VirtualNetwork is not null){<small> · VNet: @network.VirtualNetwork.Name · @network.VirtualNetwork.ResourceGroup</small>}
+                                            @if (!string.IsNullOrWhiteSpace(network.SubnetName)){<small> · Subnet: @network.SubnetName</small>}
+                                            @if (!string.IsNullOrWhiteSpace(network.IpConfigurationName)){<small> · IP config: @network.IpConfigurationName</small>}
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                    <p class="mapping-note">Application groups use AVD's hostPoolArmPath. Session hosts are read from each host pool, matched to their backing VM, then traced through the VM network profile to its NIC, subnet and virtual network.</p>
                 </section>
             }
         </div>
