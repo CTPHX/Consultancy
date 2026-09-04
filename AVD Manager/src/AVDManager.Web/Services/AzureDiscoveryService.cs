@@ -7,6 +7,8 @@ namespace AVDManager.Web.Services;
 public sealed class AzureDiscoveryService
 {
     private const string DesktopVirtualizationApiVersion = "2024-04-03";
+    private const string ComputeApiVersion = "2024-07-01";
+    private const string NetworkApiVersion = "2024-05-01";
     private static readonly string[] ArmScopes = ["https://management.azure.com/.default"];
     private readonly TokenCredential _credential;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -194,6 +196,9 @@ public sealed class AzureDiscoveryService
                         }
 
                         var backingVm = FindBackingVirtualMachine(virtualMachines, resourceId, name);
+                        var networking = backingVm is null
+                            ? []
+                            : await DiscoverVirtualMachineNetworkingAsync(backingVm, cancellationToken);
 
                         discovered.Add(new AzureSessionHost(
                             id,
@@ -205,7 +210,8 @@ public sealed class AzureDiscoveryService
                             statusTimestamp,
                             allowNewSession,
                             sessions,
-                            backingVm));
+                            backingVm,
+                            networking));
                     }
                 }
 
@@ -216,6 +222,86 @@ public sealed class AzureDiscoveryService
         }
 
         return discovered;
+    }
+
+    private async Task<IReadOnlyList<AzureVmNetworkConnection>> DiscoverVirtualMachineNetworkingAsync(
+        AzureDiscoveredResource virtualMachine,
+        CancellationToken cancellationToken)
+    {
+        using var vmDocument = await GetArmJsonAsync(
+            $"https://management.azure.com{virtualMachine.Id}?api-version={ComputeApiVersion}",
+            cancellationToken);
+
+        var nicIds = new List<string>();
+        if (vmDocument.RootElement.TryGetProperty("properties", out var vmProperties) &&
+            vmProperties.TryGetProperty("networkProfile", out var networkProfile) &&
+            networkProfile.TryGetProperty("networkInterfaces", out var networkInterfaces))
+        {
+            foreach (var nic in networkInterfaces.EnumerateArray())
+            {
+                if (nic.TryGetProperty("id", out var nicIdElement) && !string.IsNullOrWhiteSpace(nicIdElement.GetString()))
+                    nicIds.Add(nicIdElement.GetString()!);
+            }
+        }
+
+        var results = new List<AzureVmNetworkConnection>();
+        foreach (var nicId in nicIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            using var nicDocument = await GetArmJsonAsync(
+                $"https://management.azure.com{nicId}?api-version={NetworkApiVersion}",
+                cancellationToken);
+
+            var nicName = nicDocument.RootElement.TryGetProperty("name", out var nicNameElement)
+                ? nicNameElement.GetString() ?? GetLastArmSegment(nicId)
+                : GetLastArmSegment(nicId);
+            var nicResourceGroup = GetResourceGroupFromArmId(nicId);
+
+            if (!nicDocument.RootElement.TryGetProperty("properties", out var nicProperties) ||
+                !nicProperties.TryGetProperty("ipConfigurations", out var ipConfigurations))
+            {
+                results.Add(new AzureVmNetworkConnection(nicId, nicName, nicResourceGroup, null, null, null, null));
+                continue;
+            }
+
+            var added = false;
+            foreach (var ipConfig in ipConfigurations.EnumerateArray())
+            {
+                var ipConfigName = ipConfig.TryGetProperty("name", out var ipConfigNameElement)
+                    ? ipConfigNameElement.GetString()
+                    : null;
+                string? subnetId = null;
+
+                if (ipConfig.TryGetProperty("properties", out var ipProperties) &&
+                    ipProperties.TryGetProperty("subnet", out var subnet) &&
+                    subnet.TryGetProperty("id", out var subnetIdElement))
+                {
+                    subnetId = subnetIdElement.GetString();
+                }
+
+                if (string.IsNullOrWhiteSpace(subnetId))
+                    continue;
+
+                var subnetName = GetLastArmSegment(subnetId);
+                var vnetId = GetParentArmId(subnetId, "subnets");
+                var vnetName = string.IsNullOrWhiteSpace(vnetId) ? null : GetLastArmSegment(vnetId);
+                var networkResourceGroup = GetResourceGroupFromArmId(subnetId);
+
+                results.Add(new AzureVmNetworkConnection(
+                    nicId,
+                    nicName,
+                    nicResourceGroup,
+                    ipConfigName,
+                    subnetId,
+                    subnetName,
+                    vnetId is null ? null : new AzureVirtualNetworkReference(vnetId, vnetName ?? string.Empty, networkResourceGroup)));
+                added = true;
+            }
+
+            if (!added)
+                results.Add(new AzureVmNetworkConnection(nicId, nicName, nicResourceGroup, null, null, null, null));
+        }
+
+        return results;
     }
 
     private static AzureDiscoveredResource? FindBackingVirtualMachine(
@@ -256,16 +342,22 @@ public sealed class AzureDiscoveryService
     private static bool ArmIdEquals(string? left, string? right) =>
         string.Equals(left?.TrimEnd('/'), right?.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
 
-    private static string GetResourceGroup(JsonElement item)
+    private static string? GetParentArmId(string armId, string childTypeSegment)
     {
-        if (!item.TryGetProperty("id", out var idElement))
+        var marker = $"/{childTypeSegment}/";
+        var index = armId.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        return index > 0 ? armId[..index] : null;
+    }
+
+    private static string GetLastArmSegment(string armId) =>
+        armId.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+
+    private static string GetResourceGroupFromArmId(string? armId)
+    {
+        if (string.IsNullOrWhiteSpace(armId))
             return string.Empty;
 
-        var id = idElement.GetString();
-        if (string.IsNullOrWhiteSpace(id))
-            return string.Empty;
-
-        var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = armId.Split('/', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < parts.Length - 1; i++)
         {
             if (parts[i].Equals("resourceGroups", StringComparison.OrdinalIgnoreCase))
@@ -273,6 +365,14 @@ public sealed class AzureDiscoveryService
         }
 
         return string.Empty;
+    }
+
+    private static string GetResourceGroup(JsonElement item)
+    {
+        if (!item.TryGetProperty("id", out var idElement))
+            return string.Empty;
+
+        return GetResourceGroupFromArmId(idElement.GetString());
     }
 
     private static string? Categorise(string resourceType)
@@ -310,6 +410,20 @@ public sealed record AzureDiscoveredResource(
     string? WorkspaceArmPath,
     string? ApplicationGroupType);
 
+public sealed record AzureVirtualNetworkReference(
+    string Id,
+    string Name,
+    string ResourceGroup);
+
+public sealed record AzureVmNetworkConnection(
+    string NicId,
+    string NicName,
+    string NicResourceGroup,
+    string? IpConfigurationName,
+    string? SubnetId,
+    string? SubnetName,
+    AzureVirtualNetworkReference? VirtualNetwork);
+
 public sealed record AzureSessionHost(
     string Id,
     string Name,
@@ -320,7 +434,8 @@ public sealed record AzureSessionHost(
     string? StatusTimestamp,
     bool? AllowNewSession,
     int? Sessions,
-    AzureDiscoveredResource? VirtualMachine);
+    AzureDiscoveredResource? VirtualMachine,
+    IReadOnlyList<AzureVmNetworkConnection> Networking);
 
 public sealed record AzureDiscoveryResult(
     AzureSubscription Subscription,
