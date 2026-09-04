@@ -1,25 +1,25 @@
 @page
+@model AVDManager.Web.Pages.IndexModel
 @{
     ViewData["Title"] = "Dashboard";
+    var environment = Model.EnvironmentConfiguration!;
+    var hosts = environment.HostPools.SelectMany(h => h.SessionHosts).ToList();
+    var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
+    var sessions = hosts.Sum(h => h.Sessions ?? 0);
+    var image = hosts.Select(h => h.ImageVersion).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 }
-
-<div class="page-heading">
-    <div><h1>Dashboard</h1><p>Overview of your Azure Virtual Desktop environment</p></div>
-    <button class="primary-button">Refresh</button>
-</div>
-
+<div class="page-heading"><div><h1>Dashboard</h1><p>@environment.SubscriptionName · last scanned @environment.LastScannedAtUtc.ToLocalTime().ToString("g")</p></div><a class="primary-button link-button" href="/Settings">Environment settings</a></div>
 <section class="metrics">
-    <article class="metric"><span>Host Pool</span><strong>Not configured</strong><small>Complete onboarding</small></article>
-    <article class="metric"><span>Session Hosts</span><strong>—</strong><small>Awaiting Azure discovery</small></article>
-    <article class="metric"><span>Users</span><strong>—</strong><small>Active sessions</small></article>
-    <article class="metric"><span>Current Image</span><strong>—</strong><small>Gallery image version</small></article>
-    <article class="metric"><span>FSLogix Storage</span><strong>—</strong><small>Awaiting discovery</small></article>
-    <article class="metric"><span>Automation Jobs</span><strong>0</strong><small>Running jobs</small></article>
+<article class="metric"><span>Host Pools</span><strong>@environment.HostPools.Count</strong><small>Configured</small></article>
+<article class="metric"><span>Session Hosts</span><strong>@hosts.Count</strong><small>@available available</small></article>
+<article class="metric"><span>Users</span><strong>@sessions</strong><small>Discovered sessions</small></article>
+<article class="metric"><span>Current Image</span><strong>@(image ?? "—")</strong><small>Discovered image version</small></article>
+<article class="metric"><span>Subscription</span><strong>@environment.SubscriptionName</strong><small>Saved environment</small></article>
+<article class="metric"><span>Automation Jobs</span><strong>0</strong><small>Integration coming next</small></article>
 </section>
-
 <section class="dashboard-grid">
-    <article class="panel"><h2>Host Pool Health</h2><div class="empty-state"><strong>No environment configured</strong><p>Run first-time setup to discover your AVD resources.</p><a class="primary-button link-button" href="/Onboarding">Start setup</a></div></article>
-    <article class="panel"><h2>Recent Jobs</h2><div class="empty-state"><p>Automation jobs will appear here.</p></div></article>
-    <article class="panel"><h2>FSLogix Storage</h2><div class="empty-state"><p>Storage utilisation will appear after discovery.</p></div></article>
-    <article class="panel"><h2>Image Versions</h2><div class="empty-state"><p>Azure Compute Gallery versions will appear here.</p></div></article>
+<article class="panel"><h2>Host Pool Health</h2>@foreach(var pool in environment.HostPools){var poolAvailable=pool.SessionHosts.Count(h=>string.Equals(h.Status,"Available",StringComparison.OrdinalIgnoreCase));<div class="mapping-value"><strong>@pool.HostPoolName</strong><small> · @pool.SessionHosts.Count host(s) · @poolAvailable available</small></div>}</article>
+<article class="panel"><h2>Environment</h2><p>AVD Manager now has a saved development configuration for this subscription.</p><p class="muted">Use Settings → Re-scan Azure subscription after Azure resources change.</p></article>
+<article class="panel"><h2>Session Hosts</h2>@if(hosts.Count==0){<p class="muted">No registered session hosts discovered.</p>}else{@foreach(var host in hosts){<div class="mapping-value"><strong>@host.Name</strong><small> · @host.Status · @(host.Sessions ?? 0) session(s)</small></div>}</article>
+<article class="panel"><h2>Image Versions</h2>@foreach(var host in hosts.Where(h=>!string.IsNullOrWhiteSpace(h.ImageDefinition))){<div class="mapping-value"><strong>@host.ImageDefinition</strong><small> · @(host.ImageVersion ?? "version unavailable") · @host.GalleryName</small></div>}</article>
 </section>
