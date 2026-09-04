@@ -53,6 +53,7 @@ builder.Services.AddSingleton<TokenCredential>(sp =>
 });
 
 builder.Services.AddScoped<AVDManager.Web.Services.AzureDiscoveryService>();
+builder.Services.AddScoped<AVDManager.Web.Services.AzureVmImageDiscoveryService>();
 
 var app = builder.Build();
 
