@@ -7,7 +7,7 @@ namespace AVDManager.Web.Services;
 public sealed class HostPoolRefreshService
 {
     private const string DesktopVirtualizationApiVersion = "2024-04-03";
-    private const string ComputeApiVersion = "2024-07-01";
+    private const string ComputeApiVersion = "2024-03-01";
     private const string NetworkApiVersion = "2024-05-01";
     private static readonly string[] ArmScopes = ["https://management.azure.com/.default"];
 
@@ -28,6 +28,29 @@ public sealed class HostPoolRefreshService
         _configurationStore = configurationStore;
     }
 
+    public async Task<bool> HasChangedAsync(
+        SavedHostPoolConfiguration savedPool,
+        CancellationToken cancellationToken = default)
+    {
+        var snapshots = await GetSessionHostSnapshotsAsync(savedPool.HostPoolId, cancellationToken);
+        if (snapshots.Count != savedPool.SessionHosts.Count)
+            return true;
+
+        foreach (var snapshot in snapshots)
+        {
+            var saved = savedPool.SessionHosts.FirstOrDefault(h =>
+                h.Name.Equals(snapshot.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (saved is null ||
+                !string.Equals(saved.Status, snapshot.Status, StringComparison.OrdinalIgnoreCase) ||
+                saved.AllowNewSession != snapshot.AllowNewSession ||
+                (saved.Sessions ?? 0) != (snapshot.Sessions ?? 0))
+                return true;
+        }
+
+        return false;
+    }
+
     public async Task<EnvironmentConfiguration> RefreshAsync(
         EnvironmentConfiguration environment,
         string hostPoolId,
@@ -39,21 +62,28 @@ public sealed class HostPoolRefreshService
         if (savedPool is null)
             throw new InvalidOperationException("The selected host pool is not part of the saved environment.");
 
+        var snapshots = await GetSessionHostSnapshotsAsync(savedPool.HostPoolId, cancellationToken);
         var refreshedHosts = new List<SavedSessionHost>();
-        string? nextUrl = $"https://management.azure.com{savedPool.HostPoolId}/sessionHosts?api-version={DesktopVirtualizationApiVersion}";
 
-        while (!string.IsNullOrWhiteSpace(nextUrl))
+        foreach (var snapshot in snapshots)
         {
-            using var document = await GetArmJsonAsync(nextUrl, cancellationToken);
-            if (document.RootElement.TryGetProperty("value", out var values))
+            var existing = savedPool.SessionHosts.FirstOrDefault(h =>
+                h.Name.Equals(snapshot.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is not null &&
+                !string.IsNullOrWhiteSpace(existing.VmName) &&
+                !string.IsNullOrWhiteSpace(existing.VmResourceGroup))
             {
-                foreach (var item in values.EnumerateArray())
-                    refreshedHosts.Add(await BuildSavedSessionHostAsync(item, cancellationToken));
+                refreshedHosts.Add(existing with
+                {
+                    Status = snapshot.Status,
+                    AllowNewSession = snapshot.AllowNewSession,
+                    Sessions = snapshot.Sessions
+                });
+                continue;
             }
 
-            nextUrl = document.RootElement.TryGetProperty("nextLink", out var nextLink)
-                ? nextLink.GetString()
-                : null;
+            refreshedHosts.Add(await BuildSavedSessionHostAsync(snapshot, cancellationToken));
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -74,38 +104,68 @@ public sealed class HostPoolRefreshService
         return updatedEnvironment;
     }
 
-    private async Task<SavedSessionHost> BuildSavedSessionHostAsync(JsonElement item, CancellationToken cancellationToken)
+    private async Task<List<SessionHostSnapshot>> GetSessionHostSnapshotsAsync(
+        string hostPoolId,
+        CancellationToken cancellationToken)
     {
-        var rawName = item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
-        var name = rawName.Contains('/') ? rawName[(rawName.LastIndexOf('/') + 1)..] : rawName;
+        var snapshots = new List<SessionHostSnapshot>();
+        string? nextUrl = $"https://management.azure.com{hostPoolId}/sessionHosts?api-version={DesktopVirtualizationApiVersion}";
 
-        string? resourceId = null;
-        string? status = null;
-        bool? allowNewSession = null;
-        int? sessions = null;
-
-        if (item.TryGetProperty("properties", out var properties))
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            if (properties.TryGetProperty("resourceId", out var resourceIdElement))
-                resourceId = resourceIdElement.GetString();
-            if (properties.TryGetProperty("status", out var statusElement))
-                status = statusElement.GetString();
-            if (properties.TryGetProperty("allowNewSession", out var allowNewSessionElement) &&
-                allowNewSessionElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
-                allowNewSession = allowNewSessionElement.GetBoolean();
-            if (properties.TryGetProperty("sessions", out var sessionsElement) && sessionsElement.TryGetInt32(out var sessionCount))
-                sessions = sessionCount;
+            using var document = await GetArmJsonAsync(nextUrl, cancellationToken);
+            if (document.RootElement.TryGetProperty("value", out var values))
+            {
+                foreach (var item in values.EnumerateArray())
+                {
+                    var rawName = item.TryGetProperty("name", out var nameElement)
+                        ? nameElement.GetString() ?? string.Empty
+                        : string.Empty;
+                    var name = rawName.Contains('/') ? rawName[(rawName.LastIndexOf('/') + 1)..] : rawName;
+
+                    string? resourceId = null;
+                    string? status = null;
+                    bool? allowNewSession = null;
+                    int? sessions = null;
+
+                    if (item.TryGetProperty("properties", out var properties))
+                    {
+                        if (properties.TryGetProperty("resourceId", out var resourceIdElement))
+                            resourceId = resourceIdElement.GetString();
+                        if (properties.TryGetProperty("status", out var statusElement))
+                            status = statusElement.GetString();
+                        if (properties.TryGetProperty("allowNewSession", out var allowNewSessionElement) &&
+                            allowNewSessionElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                            allowNewSession = allowNewSessionElement.GetBoolean();
+                        if (properties.TryGetProperty("sessions", out var sessionsElement) && sessionsElement.TryGetInt32(out var sessionCount))
+                            sessions = sessionCount;
+                    }
+
+                    snapshots.Add(new SessionHostSnapshot(name, resourceId, status, allowNewSession, sessions));
+                }
+            }
+
+            nextUrl = document.RootElement.TryGetProperty("nextLink", out var nextLink)
+                ? nextLink.GetString()
+                : null;
         }
 
+        return snapshots;
+    }
+
+    private async Task<SavedSessionHost> BuildSavedSessionHostAsync(
+        SessionHostSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
         AzureDiscoveredResource? vm = null;
         string? nicName = null;
         string? vnetName = null;
         string? subnetName = null;
         AzureVmImageReference? image = null;
 
-        if (!string.IsNullOrWhiteSpace(resourceId))
+        if (!string.IsNullOrWhiteSpace(snapshot.ResourceId))
         {
-            vm = await GetVirtualMachineAsync(resourceId, cancellationToken);
+            vm = await GetVirtualMachineAsync(snapshot.ResourceId, cancellationToken);
             if (vm is not null)
             {
                 (nicName, vnetName, subnetName) = await GetPrimaryNetworkAsync(vm.Id, cancellationToken);
@@ -114,10 +174,10 @@ public sealed class HostPoolRefreshService
         }
 
         return new SavedSessionHost(
-            Name: name,
-            Status: status,
-            AllowNewSession: allowNewSession,
-            Sessions: sessions,
+            Name: snapshot.Name,
+            Status: snapshot.Status,
+            AllowNewSession: snapshot.AllowNewSession,
+            Sessions: snapshot.Sessions,
             VmName: vm?.Name,
             VmResourceGroup: vm?.ResourceGroup,
             NicName: nicName,
@@ -235,4 +295,11 @@ public sealed class HostPoolRefreshService
 
         return string.Empty;
     }
+
+    private sealed record SessionHostSnapshot(
+        string Name,
+        string? ResourceId,
+        string? Status,
+        bool? AllowNewSession,
+        int? Sessions);
 }
