@@ -2,7 +2,6 @@
 @model AVDManager.Web.Pages.HostPoolModel
 @{
     ViewData["Title"] = Model.HostPool?.HostPoolName ?? "Host Pool";
-    ViewData["TopStatusMessage"] = Model.StatusMessage;
     var pool = Model.HostPool!;
     var hosts = pool.SessionHosts;
     var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
