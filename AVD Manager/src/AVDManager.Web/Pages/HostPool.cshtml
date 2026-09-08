@@ -49,7 +49,7 @@
                 }
                 else if (scalingPlan.Enabled == false)
                 {
-                    <small><span class="status-pill status-neutral">Disabled</span></small>
+                    <small><span class="status-pill status-bad">Disabled</span></small>
                     <form method="post" asp-page-handler="SetScalingPlan" data-progress-label="Enabling scaling plan…" onsubmit="return window.confirm('Enable scaling plan @scalingPlan.Name for this host pool?');">
                         <input type="hidden" name="id" value="@pool.HostPoolName" />
                         <input type="hidden" name="scalingPlanId" value="@scalingPlan.ResourceId" />
