@@ -16,7 +16,8 @@ public sealed class SessionHostsModel : PageModel
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
-    public IReadOnlyList<SessionHostRow> SessionHosts { get; private set; } = [];
+    public IReadOnlyList<HostPoolGroup> HostPools { get; private set; } = [];
+    public IReadOnlyList<SessionHostRow> SessionHosts => HostPools.SelectMany(p => p.SessionHosts).ToList();
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
@@ -24,33 +25,44 @@ public sealed class SessionHostsModel : PageModel
         if (EnvironmentConfiguration is null)
             return RedirectToPage("/Onboarding");
 
-        SessionHosts = EnvironmentConfiguration.HostPools
-            .SelectMany(pool => pool.SessionHosts.Select(host => new SessionHostRow(
+        HostPools = EnvironmentConfiguration.HostPools
+            .Select(pool => new HostPoolGroup(
                 HostPoolName: pool.HostPoolName,
                 HostPoolLocation: pool.Location,
-                Name: host.Name,
-                Status: host.Status,
-                AllowNewSession: host.AllowNewSession,
-                Sessions: host.Sessions ?? 0,
-                VmName: host.VmName,
-                VmResourceGroup: host.VmResourceGroup,
-                NicName: host.NicName,
-                VnetName: host.VnetName,
-                SubnetName: host.SubnetName,
-                GalleryName: host.GalleryName,
-                ImageDefinition: host.ImageDefinition,
-                ImageVersion: host.ImageVersion)))
-            .OrderBy(h => h.HostPoolName)
-            .ThenBy(h => h.Name)
+                SessionHosts: pool.SessionHosts
+                    .Select(host => new SessionHostRow(
+                        Name: host.Name,
+                        Status: host.Status,
+                        AllowNewSession: host.AllowNewSession,
+                        Sessions: host.Sessions ?? 0,
+                        VmName: host.VmName,
+                        VmResourceGroup: host.VmResourceGroup,
+                        NicName: host.NicName,
+                        VnetName: host.VnetName,
+                        SubnetName: host.SubnetName,
+                        GalleryName: host.GalleryName,
+                        ImageDefinition: host.ImageDefinition,
+                        ImageVersion: host.ImageVersion))
+                    .OrderBy(h => h.Name)
+                    .ToList()))
+            .OrderBy(p => p.HostPoolName)
             .ToList();
 
         return Page();
     }
 }
 
-public sealed record SessionHostRow(
+public sealed record HostPoolGroup(
     string HostPoolName,
     string HostPoolLocation,
+    IReadOnlyList<SessionHostRow> SessionHosts)
+{
+    public int AvailableHosts => SessionHosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
+    public int UnavailableHosts => SessionHosts.Count - AvailableHosts;
+    public int ActiveSessions => SessionHosts.Sum(h => h.Sessions);
+}
+
+public sealed record SessionHostRow(
     string Name,
     string? Status,
     bool? AllowNewSession,
