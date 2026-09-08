@@ -9,15 +9,25 @@ namespace AVDManager.Web.Pages;
 public sealed class SessionHostsModel : PageModel
 {
     private readonly EnvironmentConfigurationStore _environmentStore;
+    private readonly HostPoolRefreshService _hostPoolRefresh;
 
-    public SessionHostsModel(EnvironmentConfigurationStore environmentStore)
+    public SessionHostsModel(
+        EnvironmentConfigurationStore environmentStore,
+        HostPoolRefreshService hostPoolRefresh)
     {
         _environmentStore = environmentStore;
+        _hostPoolRefresh = hostPoolRefresh;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public IReadOnlyList<HostPoolGroup> HostPools { get; private set; } = [];
     public IReadOnlyList<SessionHostRow> SessionHosts => HostPools.SelectMany(p => p.SessionHosts).ToList();
+
+    [TempData]
+    public string? StatusMessage { get; set; }
+
+    [TempData]
+    public string? ErrorMessage { get; set; }
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
@@ -25,10 +35,48 @@ public sealed class SessionHostsModel : PageModel
         if (EnvironmentConfiguration is null)
             return RedirectToPage("/Onboarding");
 
-        HostPools = EnvironmentConfiguration.HostPools
+        BuildViewModel(EnvironmentConfiguration);
+        return Page();
+    }
+
+    public async Task<IActionResult> OnPostRescanHostPoolAsync(string hostPoolId, CancellationToken cancellationToken)
+    {
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null)
+            return RedirectToPage("/Onboarding");
+
+        var pool = environment.HostPools.FirstOrDefault(p =>
+            p.HostPoolId.Equals(hostPoolId, StringComparison.OrdinalIgnoreCase));
+
+        if (pool is null)
+        {
+            ErrorMessage = "The selected host pool is not part of the saved environment.";
+            return RedirectToPage();
+        }
+
+        try
+        {
+            var updated = await _hostPoolRefresh.RefreshAsync(environment, hostPoolId, cancellationToken);
+            var refreshed = updated.HostPools.First(p => p.HostPoolId.Equals(hostPoolId, StringComparison.OrdinalIgnoreCase));
+            StatusMessage = $"{refreshed.HostPoolName} re-scanned. {refreshed.SessionHosts.Count} session host(s) found.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Could not re-scan {pool.HostPoolName}: {ex.Message}";
+        }
+
+        return RedirectToPage();
+    }
+
+    private void BuildViewModel(EnvironmentConfiguration environment)
+    {
+        EnvironmentConfiguration = environment;
+        HostPools = environment.HostPools
             .Select(pool => new HostPoolGroup(
+                HostPoolId: pool.HostPoolId,
                 HostPoolName: pool.HostPoolName,
                 HostPoolLocation: pool.Location,
+                LastScannedAtUtc: pool.LastScannedAtUtc ?? environment.LastScannedAtUtc,
                 SessionHosts: pool.SessionHosts
                     .Select(host => new SessionHostRow(
                         Name: host.Name,
@@ -47,14 +95,14 @@ public sealed class SessionHostsModel : PageModel
                     .ToList()))
             .OrderBy(p => p.HostPoolName)
             .ToList();
-
-        return Page();
     }
 }
 
 public sealed record HostPoolGroup(
+    string HostPoolId,
     string HostPoolName,
     string HostPoolLocation,
+    DateTimeOffset LastScannedAtUtc,
     IReadOnlyList<SessionHostRow> SessionHosts)
 {
     public int AvailableHosts => SessionHosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
