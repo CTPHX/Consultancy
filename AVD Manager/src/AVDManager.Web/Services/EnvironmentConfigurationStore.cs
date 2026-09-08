@@ -68,7 +68,8 @@ public sealed record SavedHostPoolConfiguration(
     string Location,
     SavedResourceGroupDefaults ResourceGroups,
     IReadOnlyList<string> ApplicationGroups,
-    IReadOnlyList<SavedSessionHost> SessionHosts);
+    IReadOnlyList<SavedSessionHost> SessionHosts,
+    DateTimeOffset? LastScannedAtUtc = null);
 
 public sealed record SavedResourceGroupDefaults(
     string? Avd,
