@@ -77,6 +77,58 @@ public sealed class HostPoolModel : PageModel
         return RedirectToPage(new { id = pool.HostPoolName });
     }
 
+    public async Task<IActionResult> OnPostLogoffAllSessionsAsync(string id, CancellationToken cancellationToken)
+    {
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null) return RedirectToPage("/Onboarding");
+        var pool = FindPool(environment, id);
+        if (pool is null) return NotFound();
+        var hostPoolResourceGroup = GetResourceGroupFromArmId(pool.HostPoolId);
+        if (string.IsNullOrWhiteSpace(hostPoolResourceGroup)) { ErrorMessage = "AVD Manager could not resolve the host pool resource group."; return RedirectToPage(new { id = pool.HostPoolName }); }
+
+        IReadOnlyList<AvdUserSession> currentSessions;
+        try
+        {
+            currentSessions = await _userSessionService.ListByHostPoolAsync(environment.SubscriptionId, hostPoolResourceGroup, pool.HostPoolName, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Could not read current user sessions before logoff: {ex.Message}";
+            return RedirectToPage(new { id = pool.HostPoolName });
+        }
+
+        if (currentSessions.Count == 0)
+        {
+            StatusMessage = "There are no user sessions to log off.";
+            return RedirectToPage(new { id = pool.HostPoolName });
+        }
+
+        var succeeded = new List<AvdUserSession>();
+        var failures = new List<string>();
+        foreach (var session in currentSessions)
+        {
+            try
+            {
+                await _userSessionService.LogoffAsync(session.ResourceId, cancellationToken);
+                succeeded.Add(session);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{session.UserPrincipalName} on {session.SessionHostName}: {ex.Message}");
+            }
+        }
+
+        if (succeeded.Count > 0)
+        {
+            StatusMessage = $"Logged off {succeeded.Count} user session(s) from {pool.HostPoolName}.";
+            await TryRefreshAsync(environment, pool, cancellationToken);
+        }
+        if (failures.Count > 0)
+            ErrorMessage = $"{failures.Count} user session logoff operation(s) failed. {string.Join(" | ", failures)}";
+
+        return RedirectToPage(new { id = pool.HostPoolName });
+    }
+
     public async Task<IActionResult> OnPostRescanAsync(string id, CancellationToken cancellationToken)
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
