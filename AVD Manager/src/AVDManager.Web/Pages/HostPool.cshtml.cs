@@ -24,7 +24,7 @@ public sealed class HostPoolModel : PageModel
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public SavedHostPoolConfiguration? HostPool { get; private set; }
-    public IReadOnlyList<string> ScalingPlans { get; private set; } = [];
+    public IReadOnlyList<ScalingPlanReference> ScalingPlans { get; private set; } = [];
     public string? ScalingPlanError { get; private set; }
 
     [TempData]
