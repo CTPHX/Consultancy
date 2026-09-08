@@ -24,7 +24,10 @@ public sealed class SessionHostsModel : PageModel
     public IReadOnlyList<SessionHostRow> SessionHosts => HostPools.SelectMany(p => p.SessionHosts).ToList();
 
     [TempData]
-    public string? StatusMessage { get; set; }
+    public string? ManualRescanMessage { get; set; }
+
+    [TempData]
+    public string? ManualRescanHostPoolId { get; set; }
 
     [TempData]
     public string? ErrorMessage { get; set; }
@@ -62,7 +65,10 @@ public sealed class SessionHostsModel : PageModel
         }
     }
 
-    public async Task<IActionResult> OnPostRescanHostPoolAsync(string hostPoolId, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostRescanHostPoolAsync(
+        string hostPoolId,
+        bool automatic = false,
+        CancellationToken cancellationToken = default)
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
         if (environment is null)
@@ -81,7 +87,12 @@ public sealed class SessionHostsModel : PageModel
         {
             var updated = await _hostPoolRefresh.RefreshAsync(environment, hostPoolId, cancellationToken);
             var refreshed = updated.HostPools.First(p => p.HostPoolId.Equals(hostPoolId, StringComparison.OrdinalIgnoreCase));
-            StatusMessage = $"{refreshed.HostPoolName} re-scanned. {refreshed.SessionHosts.Count} session host(s) found.";
+
+            if (!automatic)
+            {
+                ManualRescanHostPoolId = refreshed.HostPoolId;
+                ManualRescanMessage = $"Manual re-scan complete - {refreshed.SessionHosts.Count} session host(s) found.";
+            }
         }
         catch (Exception ex)
         {
