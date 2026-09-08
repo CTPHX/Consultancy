@@ -26,6 +26,13 @@
         <header class="topbar">
             <span class="environment">@environmentLabel</span>
             <div class="top-actions">
+                <div id="operationProgress" class="operation-progress" hidden aria-live="polite">
+                    <div class="operation-progress-row">
+                        <span id="operationProgressText">Working…</span>
+                        <span id="operationProgressCount"></span>
+                    </div>
+                    <div class="operation-progress-track"><span id="operationProgressBar"></span></div>
+                </div>
                 @if (!string.IsNullOrWhiteSpace(topStatusMessage))
                 {
                     <span class="top-status-message status-good">@topStatusMessage</span>
