@@ -64,7 +64,7 @@
 
 <section class="panel" style="margin-top:16px;">
     <div class="panel-heading-row">
-        <div><h2>Session hosts</h2><p class="muted">Select one or more hosts, then change drain mode for the selection.</p></div>
+        <div><h2>Session hosts</h2><p class="muted">Select one or more hosts, then change drain mode or VM power state for the selection.</p></div>
         <small class="last-scan">Last scanned @((pool.LastScannedAtUtc ?? Model.EnvironmentConfiguration.LastScannedAtUtc).ToLocalTime().ToString("g"))</small>
     </div>
 
@@ -74,13 +74,15 @@
     }
     else
     {
-        <form method="post" asp-page-handler="SetDrainMode" id="drainModeForm">
+        <form method="post" id="hostOperationsForm">
             <input type="hidden" name="id" value="@pool.HostPoolName" />
             <input type="hidden" name="allowNewSession" id="allowNewSession" value="false" />
 
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px;">
-                <button class="secondary-button" type="submit" data-drain-action="false" disabled>Drain selected</button>
-                <button class="secondary-button" type="submit" data-drain-action="true" disabled>Allow sessions</button>
+                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="false" disabled>Drain selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="true" disabled>Allow sessions</button>
+                <button class="secondary-button" type="submit" formaction="?handler=StartHosts" data-host-action="start" disabled>Start selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=StopHosts" data-host-action="stop" disabled>Stop selected</button>
                 <span class="muted" id="selectionCount">0 selected</span>
             </div>
 
@@ -117,24 +119,22 @@
 
 <section class="panel" style="margin-top:16px;">
     <h2>Operational controls</h2>
-    <p class="muted">Drain mode now updates Azure Virtual Desktop directly through the Azure Resource Manager API. Start, stop, restart and deployment controls will be added separately with the appropriate controlled Azure operation for each action.</p>
+    <p class="muted">Drain mode and VM start/stop now use Azure Resource Manager directly. Stop deallocates the backing Azure VM and is allowed only when the selected session host is already in drain mode. Deployment remains a separate Azure Automation workflow.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
-        <button class="secondary-button" disabled>Start hosts</button>
-        <button class="secondary-button" disabled>Stop hosts</button>
         <button class="secondary-button" disabled>Deploy hosts</button>
     </div>
 </section>
 
 <script>
 (() => {
-    const form = document.getElementById('drainModeForm');
+    const form = document.getElementById('hostOperationsForm');
     if (!form) return;
 
     const selectors = Array.from(form.querySelectorAll('.host-selector'));
     const selectAll = document.getElementById('selectAllHosts');
     const count = document.getElementById('selectionCount');
     const actionValue = document.getElementById('allowNewSession');
-    const buttons = Array.from(form.querySelectorAll('[data-drain-action]'));
+    const buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]'));
 
     function updateSelection() {
         const selected = selectors.filter(item => item.checked).length;
@@ -150,7 +150,7 @@
         updateSelection();
     });
 
-    buttons.forEach(button => button.addEventListener('click', event => {
+    form.querySelectorAll('[data-drain-action]').forEach(button => button.addEventListener('click', event => {
         const selected = selectors.filter(item => item.checked).length;
         const allow = button.dataset.drainAction === 'true';
         const action = allow ? 'allow new sessions on' : 'place into drain mode';
@@ -159,6 +159,16 @@
             return;
         }
         actionValue.value = allow ? 'true' : 'false';
+    }));
+
+    form.querySelectorAll('[data-host-action]').forEach(button => button.addEventListener('click', event => {
+        const selected = selectors.filter(item => item.checked).length;
+        const start = button.dataset.hostAction === 'start';
+        const prompt = start
+            ? `Start the backing Azure VM for ${selected} selected session host(s)?`
+            : `Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`;
+        if (!window.confirm(prompt))
+            event.preventDefault();
     }));
 
     updateSelection();
