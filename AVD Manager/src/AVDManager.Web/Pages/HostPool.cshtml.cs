@@ -147,18 +147,24 @@ public sealed class HostPoolModel : PageModel
         string id,
         List<string>? selectedSessionHosts,
         CancellationToken cancellationToken) =>
-        SetVmPowerStateAsync(id, selectedSessionHosts, start: true, cancellationToken);
+        SetVmPowerStateAsync(id, selectedSessionHosts, VmPowerAction.Start, cancellationToken);
 
     public Task<IActionResult> OnPostStopHostsAsync(
         string id,
         List<string>? selectedSessionHosts,
         CancellationToken cancellationToken) =>
-        SetVmPowerStateAsync(id, selectedSessionHosts, start: false, cancellationToken);
+        SetVmPowerStateAsync(id, selectedSessionHosts, VmPowerAction.Stop, cancellationToken);
+
+    public Task<IActionResult> OnPostRestartHostsAsync(
+        string id,
+        List<string>? selectedSessionHosts,
+        CancellationToken cancellationToken) =>
+        SetVmPowerStateAsync(id, selectedSessionHosts, VmPowerAction.Restart, cancellationToken);
 
     private async Task<IActionResult> SetVmPowerStateAsync(
         string id,
         List<string>? selectedSessionHosts,
-        bool start,
+        VmPowerAction action,
         CancellationToken cancellationToken)
     {
         var selection = await ResolveSelectionAsync(id, selectedSessionHosts, cancellationToken);
@@ -169,7 +175,7 @@ public sealed class HostPoolModel : PageModel
         var pool = selection.Pool!;
         var selectedHosts = selection.Hosts!;
 
-        if (!start)
+        if (action == VmPowerAction.Stop)
         {
             var notDraining = selectedHosts.Where(host => host.AllowNewSession != false).Select(host => host.Name).ToList();
             if (notDraining.Count > 0)
@@ -192,21 +198,17 @@ public sealed class HostPoolModel : PageModel
 
             try
             {
-                if (start)
+                switch (action)
                 {
-                    await _vmOperations.StartAsync(
-                        environment.SubscriptionId,
-                        sessionHost.VmResourceGroup,
-                        sessionHost.VmName,
-                        cancellationToken);
-                }
-                else
-                {
-                    await _vmOperations.DeallocateAsync(
-                        environment.SubscriptionId,
-                        sessionHost.VmResourceGroup,
-                        sessionHost.VmName,
-                        cancellationToken);
+                    case VmPowerAction.Start:
+                        await _vmOperations.StartAsync(environment.SubscriptionId, sessionHost.VmResourceGroup, sessionHost.VmName, cancellationToken);
+                        break;
+                    case VmPowerAction.Stop:
+                        await _vmOperations.DeallocateAsync(environment.SubscriptionId, sessionHost.VmResourceGroup, sessionHost.VmName, cancellationToken);
+                        break;
+                    case VmPowerAction.Restart:
+                        await _vmOperations.RestartAsync(environment.SubscriptionId, sessionHost.VmResourceGroup, sessionHost.VmName, cancellationToken);
+                        break;
                 }
 
                 succeeded.Add(sessionHost.Name);
@@ -220,15 +222,19 @@ public sealed class HostPoolModel : PageModel
         if (succeeded.Count > 0)
         {
             await TryRefreshAsync(environment, pool, cancellationToken);
-            StatusMessage = start
-                ? $"Started {succeeded.Count} session host VM(s)."
-                : $"Stopped and deallocated {succeeded.Count} session host VM(s).";
+            StatusMessage = action switch
+            {
+                VmPowerAction.Start => $"Started {succeeded.Count} session host VM(s).",
+                VmPowerAction.Stop => $"Stopped and deallocated {succeeded.Count} session host VM(s).",
+                VmPowerAction.Restart => $"Restarted {succeeded.Count} session host VM(s).",
+                _ => null
+            };
         }
 
         if (failures.Count > 0)
         {
-            var action = start ? "start" : "stop";
-            ErrorMessage = $"{failures.Count} session host {action} operation(s) failed. {string.Join(" | ", failures)}";
+            var actionName = action.ToString().ToLowerInvariant();
+            ErrorMessage = $"{failures.Count} session host {actionName} operation(s) failed. {string.Join(" | ", failures)}";
         }
 
         return RedirectToPage(new { id = pool.HostPoolName });
@@ -298,5 +304,12 @@ public sealed class HostPoolModel : PageModel
         }
 
         return null;
+    }
+
+    private enum VmPowerAction
+    {
+        Start,
+        Stop,
+        Restart
     }
 }
