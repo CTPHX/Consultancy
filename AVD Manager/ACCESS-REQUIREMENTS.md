@@ -16,6 +16,8 @@ This file records every Azure permission AVD Manager needs as features are imple
 | --- | --- | --- | --- | --- | --- |
 | ARM discovery | Subscription/resource discovery | Read access to subscription/resource metadata and discovered Azure resources | Read | Subscription or selected resource groups, depending on onboarding model | Currently satisfied by Reader during development. Keep discovery read-only where possible. |
 | AVD | Read host pools/session hosts/application groups/scaling plans | `Microsoft.DesktopVirtualization/*/read` (to be narrowed to exact resource types before production) | Read | AVD resource group(s) | Used by discovery, host-pool details, live refresh and state reconciliation. |
+| AVD | Read live user sessions | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/read` | Read | AVD host-pool resource group or specific host pool | AVD Manager service identity. Direct ARM list-by-host-pool call displays user, session host, state, session ID and connection time. |
+| AVD | Log off user session | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/delete` | Destructive operational write | AVD host-pool resource group or specific host pool | AVD Manager service identity. Direct ARM DELETE of the validated session resource with `force=true`; UI requires explicit confirmation because this disconnects the user and closes the session. The Microsoft built-in Desktop Virtualization User Session Operator grants `Microsoft.DesktopVirtualization/hostpools/sessionhosts/usersessions/*`; production custom role should narrow to read/delete if testing confirms those are sufficient. |
 | AVD | Single/bulk drain mode (`allowNewSession`) | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write` | Write | AVD host-pool resource group or narrower host-pool scope where practical | Required for the direct ARM drain-mode API. Development shortcut: Contributor on `rg-avd-hosts-uks`. |
 | AVD | Enable/disable scaling plan association for a host pool | `Microsoft.DesktopVirtualization/scalingPlans/write` | Write | Scaling-plan resource group or specific scaling plan | Direct ARM PATCH updates `hostPoolReferences[].scalingPlanEnabled`; the service identity must have write access where the scaling plan resource lives. |
 | Compute | Read backing VM state/details | `Microsoft.Compute/virtualMachines/read` | Read | Session-host VM resource group(s) | Used to map AVD session hosts to backing Azure VMs. |
@@ -40,7 +42,7 @@ For every new operational feature, record:
 5. Whether the action is read-only, operational write, destructive write, or data-plane access.
 6. Any extra permissions discovered from real 403/authorization failures during testing.
 
-Expected upcoming areas include Azure Automation job submission/read/output, session management/logoff, session-host deployment, image management, storage/FSLogix operations and licensing/onboarding deployment tasks.
+Expected upcoming areas include Azure Automation job submission/read/output, session-host deployment, image management, storage/FSLogix operations and licensing/onboarding deployment tasks.
 
 ## Production custom-role goal
 
