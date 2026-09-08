@@ -29,7 +29,7 @@
 </section>
 
 <div class="panel-heading-row" style="margin-bottom: 14px;">
-    <div><h2>Host pools</h2><p class="muted">Session hosts are grouped by their Azure Virtual Desktop host pool.</p></div>
+    <div><h2>Host pools</h2><p class="muted">Session hosts are grouped by their Azure Virtual Desktop host pool. Select a host-pool name to open its detailed view.</p></div>
     <div style="text-align:right;">
         <span class="status-pill status-good" id="liveStatus">Live · 30s</span>
         <span class="last-scan" style="display:block; margin-top:6px;">Environment scan @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
@@ -57,9 +57,9 @@ else
                             <span class="status-pill status-good">@Model.ManualRescanMessage</span>
                         }
                     </div>
-                    <h2>@pool.HostPoolName</h2>
+                    <h2><a asp-page="/HostPool" asp-route-id="@pool.HostPoolName" style="color:inherit; text-decoration:none;">@pool.HostPoolName</a></h2>
                     <p class="muted">@pool.HostPoolLocation · @pool.SessionHosts.Count session host(s) · @pool.AvailableHosts available · @pool.ActiveSessions active session(s)</p>
-                    <small class="last-scan">Last scanned @pool.LastScannedAtUtc.ToLocalTime().ToString("g")</small>
+                    <small class="last-scan">Last scanned @pool.LastScannedAtUtc.ToLocalTime().ToString("g") · Select host pool for details</small>
                 </div>
                 <div style="display:flex; gap:10px; align-items:center;">
                     @if (pool.UnavailableHosts > 0)
@@ -90,9 +90,7 @@ else
             {
                 <div class="session-host-table-wrap">
                     <table class="session-host-table">
-                        <thead>
-                            <tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr>
-                        </thead>
+                        <thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr></thead>
                         <tbody>
                         @foreach (var host in pool.SessionHosts)
                         {
