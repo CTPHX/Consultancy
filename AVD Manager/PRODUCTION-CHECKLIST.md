@@ -13,7 +13,10 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 ## Azure discovery and operational identity
 - [ ] Use production App Service managed identity/service identity for ARM access.
 - [ ] Keep discovery at least-privilege Reader scope and separately document the minimum operational permissions needed for direct AVD session-host updates.
-- [ ] Define a custom least-privilege role for AVD Manager operational actions rather than granting broad Contributor; scope it to the configured AVD resource group/host pools where practical.
+- [ ] **Remove the temporary development Contributor assignment from the AVD Manager service identity before production.** Contributor is currently acceptable only as a development shortcut and should be assigned at the narrowest practical resource-group scope, not subscription-wide.
+- [ ] Maintain `ACCESS-REQUIREMENTS.md` as the permission ledger while features are built; record every required ARM action/DataAction, identity, operation and intended scope as it is discovered.
+- [ ] Build and test production least-privilege custom role definition(s) from the completed access-requirements ledger rather than granting broad Contributor.
+- [ ] Review whether discovery/read and operational/write permissions should be separate production custom roles for stronger separation of duties.
 - [ ] Document minimum customer onboarding RBAC and separate read-only users from operators through AVD Manager app roles.
 
 ## Azure Automation integration
@@ -27,6 +30,7 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Replace raw Azure authorization/API messages shown to users with friendly errors while retaining structured diagnostic detail in protected logs.
 - [ ] Add retry/backoff and partial-failure handling for bulk host operations; never silently report a partially successful bulk action as fully successful.
 - [ ] Reconcile UI state from Azure after direct operations and record the requested and resulting `allowNewSession` state.
+- [ ] Confirm the production custom role includes the exact session-host write permission required for drain mode (`Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`) plus only the read permissions required by the implemented UI.
 
 ## Secrets and configuration
 - [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate Development/Test/Production configuration.
