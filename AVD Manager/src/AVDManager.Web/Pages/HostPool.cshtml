@@ -149,6 +149,19 @@
         selectAll.indeterminate = selected > 0 && selected < selectors.length;
     }
 
+    function preserveSelectedHosts() {
+        form.querySelectorAll('input[data-progress-selection]').forEach(input => input.remove());
+
+        selectors.filter(selector => selector.checked).forEach(selector => {
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'selectedSessionHosts';
+            hidden.value = selector.value;
+            hidden.dataset.progressSelection = 'true';
+            form.appendChild(hidden);
+        });
+    }
+
     function showProgress(action, selected) {
         if (!progress || !progressText || !progressCount) return;
         const labels = {
@@ -205,8 +218,10 @@
     form.addEventListener('submit', () => {
         const selected = selectors.filter(item => item.checked).length;
         const action = confirmedButton?.dataset.progressAction;
-        if (action && selected > 0)
+        if (action && selected > 0) {
+            preserveSelectedHosts();
             showProgress(action, selected);
+        }
     });
 
     updateSelection();
