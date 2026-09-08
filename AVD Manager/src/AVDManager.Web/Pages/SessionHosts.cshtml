@@ -1,63 +1,93 @@
 @page
 @model AVDManager.Web.Pages.SessionHostsModel
 @{
-    ViewData["Title"] = "Session Hosts";
+    ViewData["Title"] = "Host Pools";
+    var totalHosts = Model.SessionHosts.Count;
     var available = Model.SessionHosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
-    var unavailable = Model.SessionHosts.Count - available;
+    var unavailable = totalHosts - available;
     var sessions = Model.SessionHosts.Sum(h => h.Sessions);
 }
 
 <div class="page-heading">
     <div>
-        <h1>Session Hosts</h1>
-        <p>@Model.EnvironmentConfiguration!.SubscriptionName · registered Azure Virtual Desktop session hosts</p>
+        <h1>Host Pools</h1>
+        <p>@Model.EnvironmentConfiguration!.SubscriptionName · Azure Virtual Desktop host pools and registered session hosts</p>
     </div>
     <a class="secondary-button link-button" href="/Settings">Re-scan environment</a>
 </div>
 
 <section class="metrics session-host-metrics">
-    <article class="metric"><span>Total Hosts</span><strong>@Model.SessionHosts.Count</strong><small>Registered</small></article>
-    <article class="metric"><span>Available</span><strong>@available</strong><small>Healthy AVD hosts</small></article>
-    <article class="metric"><span>Unavailable</span><strong>@unavailable</strong><small>Needs attention</small></article>
+    <article class="metric"><span>Host Pools</span><strong>@Model.HostPools.Count</strong><small>Configured</small></article>
+    <article class="metric"><span>Session Hosts</span><strong>@totalHosts</strong><small>Registered</small></article>
+    <article class="metric"><span>Available</span><strong>@available</strong><small>@unavailable unavailable</small></article>
     <article class="metric"><span>Active Sessions</span><strong>@sessions</strong><small>Across all host pools</small></article>
 </section>
 
-<section class="panel session-host-panel">
-    <div class="panel-heading-row">
-        <div><h2>Registered session hosts</h2><p class="muted">Data from the last saved Azure discovery scan.</p></div>
-        <span class="last-scan">Last scanned @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
-    </div>
+<div class="panel-heading-row" style="margin-bottom: 14px;">
+    <div><h2>Host pools</h2><p class="muted">Session hosts are grouped by their Azure Virtual Desktop host pool.</p></div>
+    <span class="last-scan">Last scanned @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
+</div>
 
-    @if (Model.SessionHosts.Count == 0)
+@if (Model.HostPools.Count == 0)
+{
+    <section class="panel"><div class="empty-state"><strong>No host pools discovered</strong><p>Re-scan Azure after creating or assigning an Azure Virtual Desktop host pool.</p></div></section>
+}
+else
+{
+    @foreach (var pool in Model.HostPools)
     {
-        <div class="empty-state"><strong>No session hosts discovered</strong><p>Re-scan Azure after registering a VM with one of the configured host pools.</p></div>
-    }
-    else
-    {
-        <div class="session-host-table-wrap">
-            <table class="session-host-table">
-                <thead>
-                    <tr><th>Session host</th><th>Host pool</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr>
-                </thead>
-                <tbody>
-                @foreach (var host in Model.SessionHosts)
+        <section class="panel session-host-panel" style="margin-bottom: 16px;">
+            <div class="panel-heading-row">
+                <div>
+                    <span class="eyebrow">HOST POOL</span>
+                    <h2>@pool.HostPoolName</h2>
+                    <p class="muted">@pool.HostPoolLocation · @pool.SessionHosts.Count session host(s) · @pool.AvailableHosts available · @pool.ActiveSessions active session(s)</p>
+                </div>
+                @if (pool.UnavailableHosts > 0)
                 {
-                    var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase);
-                    <tr>
-                        <td><strong>@host.Name</strong><small>@host.HostPoolLocation</small></td>
-                        <td><strong>@host.HostPoolName</strong></td>
-                        <td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td>
-                        <td><span class="status-pill @(host.AllowNewSession == false ? "status-warn" : "status-neutral")">@(host.AllowNewSession == false ? "On" : "Off")</span></td>
-                        <td><strong>@host.Sessions</strong></td>
-                        <td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td>
-                        <td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td>
-                        <td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td>
-                    </tr>
+                    <span class="status-pill status-bad">@pool.UnavailableHosts unavailable</span>
                 }
-                </tbody>
-            </table>
-        </div>
-    }
-</section>
+                else if (pool.SessionHosts.Count > 0)
+                {
+                    <span class="status-pill status-good">Healthy</span>
+                }
+                else
+                {
+                    <span class="status-pill status-neutral">No hosts</span>
+                }
+            </div>
 
-<p class="mapping-note">This first operational view is read-only. Start/stop, drain mode and other host actions will be added through controlled Azure Automation operations rather than direct browser-side Azure changes.</p>
+            @if (pool.SessionHosts.Count == 0)
+            {
+                <div class="empty-state"><strong>No registered session hosts</strong><p>This host pool currently has no session hosts in the saved Azure discovery scan.</p></div>
+            }
+            else
+            {
+                <div class="session-host-table-wrap">
+                    <table class="session-host-table">
+                        <thead>
+                            <tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var host in pool.SessionHosts)
+                        {
+                            var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase);
+                            <tr>
+                                <td><strong>@host.Name</strong></td>
+                                <td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td>
+                                <td><span class="status-pill @(host.AllowNewSession == false ? "status-warn" : "status-neutral")">@(host.AllowNewSession == false ? "On" : "Off")</span></td>
+                                <td><strong>@host.Sessions</strong></td>
+                                <td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td>
+                                <td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td>
+                                <td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+}
+
+<p class="mapping-note">This operational view is read-only. Start/stop, drain mode and other host actions will be added through controlled Azure Automation operations rather than direct browser-side Azure changes.</p>
