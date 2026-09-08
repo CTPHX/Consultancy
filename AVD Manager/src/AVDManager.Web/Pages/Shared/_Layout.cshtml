@@ -4,7 +4,7 @@
     var savedEnvironment = await EnvironmentStore.GetAsync(Context.RequestAborted);
     var environmentLabel = savedEnvironment?.SubscriptionName ?? "No environment selected";
     var lastScan = savedEnvironment?.LastScannedAtUtc.ToLocalTime().ToString("g") ?? "Not scanned";
-    var topStatusMessage = ViewData["TopStatusMessage"] as string;
+    var topStatusMessage = TempData["StatusMessage"] as string;
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
