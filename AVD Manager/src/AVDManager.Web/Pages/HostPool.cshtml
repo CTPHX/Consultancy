@@ -6,9 +6,7 @@
     var hosts = pool.SessionHosts;
     var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
     var sessions = hosts.Sum(h => h.Sessions ?? 0);
-    var networkNames = hosts.Where(h => !string.IsNullOrWhiteSpace(h.VnetName)).Select(h => h.VnetName!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    var subnetNames = hosts.Where(h => !string.IsNullOrWhiteSpace(h.SubnetName)).Select(h => h.SubnetName!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    var images = hosts.Where(h => !string.IsNullOrWhiteSpace(h.ImageDefinition)).Select(h => new { h.GalleryName, h.ImageDefinition, h.ImageVersion }).Distinct().ToList();
+    var scalingPlan = Model.ScalingPlans.FirstOrDefault();
 }
 
 <div class="page-heading">
@@ -41,61 +39,34 @@
     <article class="metric"><span>Application Groups</span><strong>@pool.ApplicationGroups.Count</strong><small>Linked by Azure</small></article>
 </section>
 
-<div class="dashboard-grid">
-    <section class="panel">
-        <h2>Application groups</h2>
-        @if (pool.ApplicationGroups.Count == 0)
+<div style="display:flex; align-items:stretch; gap:12px; margin:14px 0 16px; flex-wrap:wrap;">
+    <section class="panel" style="padding:14px 18px; min-width:260px; width:auto;">
+        <span class="muted" style="display:block; margin-bottom:5px;">Scaling plan</span>
+        @if (scalingPlan is not null)
         {
-            <div class="empty-state"><p>No linked application groups discovered.</p></div>
-        }
-        else
-        {
-            @foreach (var group in pool.ApplicationGroups)
-            {
-                <p><strong>@group</strong></p>
-            }
-        }
-    </section>
-
-    <section class="panel">
-        <h2>Scaling plan</h2>
-        @if (Model.ScalingPlans.Count > 0)
-        {
-            @foreach (var plan in Model.ScalingPlans)
-            {
-                <p><strong>@plan</strong></p>
-            }
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <strong>@scalingPlan.Name</strong>
+                @if (scalingPlan.Enabled == true)
+                {
+                    <span class="status-pill status-good">Enabled</span>
+                }
+                else if (scalingPlan.Enabled == false)
+                {
+                    <span class="status-pill status-neutral">Disabled</span>
+                }
+                else
+                {
+                    <span class="status-pill status-neutral">State unavailable</span>
+                }
+            </div>
         }
         else if (!string.IsNullOrWhiteSpace(Model.ScalingPlanError))
         {
-            <p class="muted">Scaling-plan relationship could not be read from Azure.</p>
+            <strong>Unable to read</strong>
         }
         else
         {
-            <div class="empty-state"><p>No scaling plan linked to this host pool.</p></div>
-        }
-    </section>
-
-    <section class="panel">
-        <h2>Networking</h2>
-        <p><span class="muted">Resource group</span><br /><strong>@(pool.ResourceGroups.Network ?? "Not configured")</strong></p>
-        <p><span class="muted">Virtual network</span><br /><strong>@(networkNames.Count > 0 ? string.Join(", ", networkNames) : "Not discovered")</strong></p>
-        <p><span class="muted">Subnet</span><br /><strong>@(subnetNames.Count > 0 ? string.Join(", ", subnetNames) : "Not discovered")</strong></p>
-    </section>
-
-    <section class="panel">
-        <h2>Image</h2>
-        <p><span class="muted">Gallery resource group</span><br /><strong>@(pool.ResourceGroups.Gallery ?? "Not configured")</strong></p>
-        @if (images.Count == 0)
-        {
-            <div class="empty-state"><p>No session-host image relationship discovered.</p></div>
-        }
-        else
-        {
-            @foreach (var image in images)
-            {
-                <p><strong>@image.ImageDefinition</strong><br /><span class="muted">@(image.ImageVersion ?? "Version unavailable") · @(image.GalleryName ?? "Gallery unavailable")</span></p>
-            }
+            <strong>Not assigned</strong>
         }
     </section>
 </div>
