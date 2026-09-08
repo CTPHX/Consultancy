@@ -19,7 +19,7 @@ public sealed class HostPoolDetailService
         _httpClientFactory = httpClientFactory;
     }
 
-    public async Task<IReadOnlyList<string>> GetScalingPlansAsync(
+    public async Task<IReadOnlyList<ScalingPlanReference>> GetScalingPlansAsync(
         string subscriptionId,
         string hostPoolId,
         CancellationToken cancellationToken = default)
@@ -44,7 +44,7 @@ public sealed class HostPoolDetailService
                 : null;
         }
 
-        var matches = new List<string>();
+        var matches = new List<ScalingPlanReference>();
         foreach (var scalingPlanId in scalingPlanIds)
         {
             using var document = await GetArmJsonAsync(
@@ -55,22 +55,39 @@ public sealed class HostPoolDetailService
                 !properties.TryGetProperty("hostPoolReferences", out var references))
                 continue;
 
-            var linked = references.EnumerateArray().Any(reference =>
-                reference.TryGetProperty("hostPoolArmPath", out var path) &&
-                string.Equals(path.GetString()?.TrimEnd('/'), hostPoolId.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+            JsonElement? matchingReference = null;
+            foreach (var reference in references.EnumerateArray())
+            {
+                if (reference.TryGetProperty("hostPoolArmPath", out var path) &&
+                    string.Equals(path.GetString()?.TrimEnd('/'), hostPoolId.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                {
+                    matchingReference = reference;
+                    break;
+                }
+            }
 
-            if (!linked)
+            if (matchingReference is null)
                 continue;
 
             var name = document.RootElement.TryGetProperty("name", out var nameElement)
                 ? nameElement.GetString()
                 : null;
 
-            if (!string.IsNullOrWhiteSpace(name))
-                matches.Add(name!);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            bool? enabled = null;
+            var referenceElement = matchingReference.Value;
+            if (referenceElement.TryGetProperty("scalingPlanEnabled", out var enabledElement) &&
+                enabledElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                enabled = enabledElement.GetBoolean();
+            }
+
+            matches.Add(new ScalingPlanReference(name!, enabled));
         }
 
-        return matches.OrderBy(name => name).ToList();
+        return matches.OrderBy(plan => plan.Name).ToList();
     }
 
     private async Task<JsonDocument> GetArmJsonAsync(string url, CancellationToken cancellationToken)
@@ -87,3 +104,5 @@ public sealed class HostPoolDetailService
         return JsonDocument.Parse(body);
     }
 }
+
+public sealed record ScalingPlanReference(string Name, bool? Enabled);
