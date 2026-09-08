@@ -32,6 +32,13 @@ public sealed class AzureVmOperationsService
         CancellationToken cancellationToken = default) =>
         SendPowerActionAsync(subscriptionId, resourceGroupName, vmName, "deallocate", cancellationToken);
 
+    public Task RestartAsync(
+        string subscriptionId,
+        string resourceGroupName,
+        string vmName,
+        CancellationToken cancellationToken = default) =>
+        SendPowerActionAsync(subscriptionId, resourceGroupName, vmName, "restart", cancellationToken);
+
     private async Task SendPowerActionAsync(
         string subscriptionId,
         string resourceGroupName,
