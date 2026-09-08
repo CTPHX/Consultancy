@@ -16,6 +16,15 @@
     <a class="secondary-button link-button" href="/Settings">Re-scan environment</a>
 </div>
 
+@if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+{
+    <div class="status-message status-good" style="margin-bottom: 16px;">@Model.StatusMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="status-message status-bad" style="margin-bottom: 16px;">@Model.ErrorMessage</div>
+}
+
 <section class="metrics session-host-metrics">
     <article class="metric"><span>Host Pools</span><strong>@Model.HostPools.Count</strong><small>Configured</small></article>
     <article class="metric"><span>Session Hosts</span><strong>@totalHosts</strong><small>Registered</small></article>
@@ -25,7 +34,7 @@
 
 <div class="panel-heading-row" style="margin-bottom: 14px;">
     <div><h2>Host pools</h2><p class="muted">Session hosts are grouped by their Azure Virtual Desktop host pool.</p></div>
-    <span class="last-scan">Last scanned @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
+    <span class="last-scan">Environment scan @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
 </div>
 
 @if (Model.HostPools.Count == 0)
@@ -42,19 +51,26 @@ else
                     <span class="eyebrow">HOST POOL</span>
                     <h2>@pool.HostPoolName</h2>
                     <p class="muted">@pool.HostPoolLocation · @pool.SessionHosts.Count session host(s) · @pool.AvailableHosts available · @pool.ActiveSessions active session(s)</p>
+                    <small class="last-scan">Last scanned @pool.LastScannedAtUtc.ToLocalTime().ToString("g")</small>
                 </div>
-                @if (pool.UnavailableHosts > 0)
-                {
-                    <span class="status-pill status-bad">@pool.UnavailableHosts unavailable</span>
-                }
-                else if (pool.SessionHosts.Count > 0)
-                {
-                    <span class="status-pill status-good">Healthy</span>
-                }
-                else
-                {
-                    <span class="status-pill status-neutral">No hosts</span>
-                }
+                <div style="display:flex; gap:10px; align-items:center;">
+                    @if (pool.UnavailableHosts > 0)
+                    {
+                        <span class="status-pill status-bad">@pool.UnavailableHosts unavailable</span>
+                    }
+                    else if (pool.SessionHosts.Count > 0)
+                    {
+                        <span class="status-pill status-good">Healthy</span>
+                    }
+                    else
+                    {
+                        <span class="status-pill status-neutral">No hosts</span>
+                    }
+                    <form method="post" asp-page-handler="RescanHostPool">
+                        <input type="hidden" name="hostPoolId" value="@pool.HostPoolId" />
+                        <button class="secondary-button" type="submit">Re-scan host pool</button>
+                    </form>
+                </div>
             </div>
 
             @if (pool.SessionHosts.Count == 0)
@@ -90,4 +106,4 @@ else
     }
 }
 
-<p class="mapping-note">This operational view is read-only. Start/stop, drain mode and other host actions will be added through controlled Azure Automation operations rather than direct browser-side Azure changes.</p>
+<p class="mapping-note">A host-pool re-scan refreshes only that pool's registered session hosts and their VM, network and image relationships. Use Settings to re-scan the whole Azure environment when host pools or other environment resources are added or removed.</p>
