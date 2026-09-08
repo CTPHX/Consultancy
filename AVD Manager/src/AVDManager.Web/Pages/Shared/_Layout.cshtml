@@ -6,6 +6,7 @@
     var hostPoolCount = savedEnvironment?.HostPools.Count ?? 0;
     var sessionHostCount = savedEnvironment?.HostPools.Sum(pool => pool.SessionHosts.Count) ?? 0;
     var lastScan = savedEnvironment?.LastScannedAtUtc.ToLocalTime().ToString("g") ?? "Not scanned";
+    var topStatusMessage = ViewData["TopStatusMessage"] as string;
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -27,6 +28,10 @@
         <header class="topbar">
             <span class="environment">@environmentLabel</span>
             <div class="top-actions">
+                @if (!string.IsNullOrWhiteSpace(topStatusMessage))
+                {
+                    <span class="top-status-message status-good">@topStatusMessage</span>
+                }
                 <div class="info-menu">
                     <button id="infoToggle" class="icon-button" type="button" title="Environment information" aria-label="Environment information" aria-expanded="false">ⓘ</button>
                     <aside id="infoPanel" class="info-panel" hidden>
