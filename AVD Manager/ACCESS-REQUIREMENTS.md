@@ -18,6 +18,8 @@ This file records every Azure permission AVD Manager needs as features are imple
 | AVD | Read host pools/session hosts/application groups/scaling plans | `Microsoft.DesktopVirtualization/*/read` (to be narrowed to exact resource types before production) | Read | AVD resource group(s) | Used by discovery, host-pool details, live refresh and state reconciliation. |
 | AVD | Single/bulk drain mode (`allowNewSession`) | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write` | Write | AVD host-pool resource group or narrower host-pool scope where practical | Required for the direct ARM drain-mode API. Development shortcut: Contributor on `rg-avd-hosts-uks`. |
 | Compute | Read backing VM state/details | `Microsoft.Compute/virtualMachines/read` | Read | Session-host VM resource group(s) | Used to map AVD session hosts to backing Azure VMs. |
+| Compute | Start selected session-host VMs | `Microsoft.Compute/virtualMachines/start/action` | Operational action | Session-host VM resource group(s), or specific VM scope where practical | AVD Manager service identity. Direct ARM POST to the backing VM `start` action. |
+| Compute | Stop/deallocate selected session-host VMs | `Microsoft.Compute/virtualMachines/deallocate/action` | Operational action | Session-host VM resource group(s), or specific VM scope where practical | AVD Manager service identity. Direct ARM POST to `deallocate`; UI requires the selected AVD session host to be in drain mode first. |
 | Network | Read NIC/VNet/subnet relationships | `Microsoft.Network/networkInterfaces/read`, `Microsoft.Network/virtualNetworks/read`, subnet read via VNet resource | Read | Network resource group(s) | Used by discovery/mapping only at present. |
 | Compute Gallery | Read gallery/image/version relationships | Read access to Compute Gallery, image definitions and versions | Read | Image/gallery resource group(s) | Used by image discovery and host-pool detail display. Exact actions will be captured before production role creation. |
 | Automation | Discover Automation Account/runbooks | Read access to Automation resources | Read | Automation resource group / Automation Account | Needed for discovery and later job views. No drain-mode Automation write permission is needed now. |
@@ -36,7 +38,7 @@ For every new operational feature, record:
 5. Whether the action is read-only, operational write, destructive write, or data-plane access.
 6. Any extra permissions discovered from real 403/authorization failures during testing.
 
-Expected upcoming areas include VM start/stop/restart, Azure Automation job submission/read/output, session management/logoff, session-host deployment, image management, storage/FSLogix operations and licensing/onboarding deployment tasks.
+Expected upcoming areas include VM restart, Azure Automation job submission/read/output, session management/logoff, session-host deployment, image management, storage/FSLogix operations and licensing/onboarding deployment tasks.
 
 ## Production custom-role goal
 
