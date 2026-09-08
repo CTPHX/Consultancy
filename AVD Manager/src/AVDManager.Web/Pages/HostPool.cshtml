@@ -11,152 +11,52 @@
 }
 
 <div class="page-heading">
-    <div>
-        <a href="/SessionHosts" class="muted" style="text-decoration:none;">← Host Pools</a>
-        <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;"><h1 style="margin:0;">@pool.HostPoolName</h1></div>
-        <p>@Model.EnvironmentConfiguration!.SubscriptionName · @pool.Location · Azure Virtual Desktop host pool</p>
-    </div>
-    <form method="post" asp-page-handler="Rescan" data-progress-label="Re-scanning host pool…">
-        <input type="hidden" name="id" value="@pool.HostPoolName" />
-        <button class="secondary-button" type="submit">Re-scan host pool</button>
-    </form>
+    <div><a href="/SessionHosts" class="muted" style="text-decoration:none;">← Host Pools</a><div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;"><h1 style="margin:0;">@pool.HostPoolName</h1></div><p>@Model.EnvironmentConfiguration!.SubscriptionName · @pool.Location · Azure Virtual Desktop host pool</p></div>
+    <form method="post" asp-page-handler="Rescan" data-progress-label="Re-scanning host pool…"><input type="hidden" name="id" value="@pool.HostPoolName" /><button class="secondary-button" type="submit">Re-scan host pool</button></form>
 </div>
-
-@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
-{
-    <div class="status-message status-bad" style="margin-bottom:16px;">@Model.ErrorMessage</div>
-}
-
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="status-message status-bad" style="margin-bottom:16px;">@Model.ErrorMessage</div> }
 <section class="metrics session-host-metrics" style="grid-template-columns:repeat(5,minmax(0,1fr));">
-    <article class="metric"><span>Session Hosts</span><strong>@hosts.Count</strong><small>Registered</small></article>
-    <article class="metric"><span>Available</span><strong>@available</strong><small>@(hosts.Count - available) unavailable</small></article>
-    <article class="metric"><span>Active Sessions</span><strong>@sessions</strong><small>Across this host pool</small></article>
-    <article class="metric"><span>Application Groups</span><strong>@pool.ApplicationGroups.Count</strong><small>Linked by Azure</small></article>
-    <article class="metric" style="padding-top:14px; padding-bottom:14px;">
-        <span>Scaling Plan</span>
-        @if (scalingPlan is not null)
-        {
-            <strong style="font-size:.95rem; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">@scalingPlan.Name</strong>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                @if (scalingPlan.Enabled == true)
-                {
-                    <small><span class="status-pill status-good">Enabled</span></small>
-                    <form method="post" asp-page-handler="SetScalingPlan" data-progress-label="Disabling scaling plan…" onsubmit="return window.confirm('Disable scaling plan @scalingPlan.Name for this host pool?');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="scalingPlanId" value="@scalingPlan.ResourceId" /><input type="hidden" name="enabled" value="false" /><button class="secondary-button scaling-plan-button" type="submit">Disable</button></form>
-                }
-                else if (scalingPlan.Enabled == false)
-                {
-                    <small><span class="status-pill status-bad">Disabled</span></small>
-                    <form method="post" asp-page-handler="SetScalingPlan" data-progress-label="Enabling scaling plan…" onsubmit="return window.confirm('Enable scaling plan @scalingPlan.Name for this host pool?');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="scalingPlanId" value="@scalingPlan.ResourceId" /><input type="hidden" name="enabled" value="true" /><button class="secondary-button scaling-plan-button" type="submit">Enable</button></form>
-                }
-                else { <small><span class="status-pill status-neutral">State unavailable</span></small> }
-            </div>
-        }
-        else if (!string.IsNullOrWhiteSpace(Model.ScalingPlanError)) { <strong style="font-size:.95rem;">Unable to read</strong><small>Azure state unavailable</small> }
-        else { <strong style="font-size:.95rem;">Not assigned</strong><small>No scaling plan</small> }
-    </article>
+    <article class="metric"><span>Session Hosts</span><strong>@hosts.Count</strong><small>Registered</small></article><article class="metric"><span>Available</span><strong>@available</strong><small>@(hosts.Count - available) unavailable</small></article><article class="metric"><span>Active Sessions</span><strong>@sessions</strong><small>Across this host pool</small></article><article class="metric"><span>Application Groups</span><strong>@pool.ApplicationGroups.Count</strong><small>Linked by Azure</small></article>
+    <article class="metric" style="padding-top:14px; padding-bottom:14px;"><span>Scaling Plan</span>@if (scalingPlan is not null) { <strong style="font-size:.95rem; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">@scalingPlan.Name</strong><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">@if (scalingPlan.Enabled == true) { <small><span class="status-pill status-good">Enabled</span></small><form method="post" asp-page-handler="SetScalingPlan" data-progress-label="Disabling scaling plan…" onsubmit="return window.confirm('Disable scaling plan @scalingPlan.Name for this host pool?');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="scalingPlanId" value="@scalingPlan.ResourceId" /><input type="hidden" name="enabled" value="false" /><button class="secondary-button scaling-plan-button" type="submit">Disable</button></form> } else if (scalingPlan.Enabled == false) { <small><span class="status-pill status-bad">Disabled</span></small><form method="post" asp-page-handler="SetScalingPlan" data-progress-label="Enabling scaling plan…" onsubmit="return window.confirm('Enable scaling plan @scalingPlan.Name for this host pool?');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="scalingPlanId" value="@scalingPlan.ResourceId" /><input type="hidden" name="enabled" value="true" /><button class="secondary-button scaling-plan-button" type="submit">Enable</button></form> } else { <small><span class="status-pill status-neutral">State unavailable</span></small> }</div> } else if (!string.IsNullOrWhiteSpace(Model.ScalingPlanError)) { <strong style="font-size:.95rem;">Unable to read</strong><small>Azure state unavailable</small> } else { <strong style="font-size:.95rem;">Not assigned</strong><small>No scaling plan</small> }</article>
 </section>
-
 <section class="panel" style="margin-top:16px;">
     <div class="panel-heading-row"><div><h2>Session hosts</h2><p class="muted">Click a host row to add or remove it from the selection, then choose an action.</p></div><small class="last-scan">Last scanned @((pool.LastScannedAtUtc ?? Model.EnvironmentConfiguration.LastScannedAtUtc).ToLocalTime().ToString("g"))</small></div>
-    @if (hosts.Count == 0) { <div class="empty-state"><strong>No registered session hosts</strong><p>Use Re-scan host pool after a host is registered in Azure Virtual Desktop.</p></div> }
-    else
-    {
-        <form method="post" id="hostOperationsForm">
-            <input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="allowNewSession" id="allowNewSession" value="false" />
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px;">
-                <button class="secondary-button" type="button" id="selectAllHosts">Select all</button><button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="false" data-progress-action="drain" disabled>Drain selected</button><button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="true" data-progress-action="allow" disabled>Allow sessions</button><button class="secondary-button" type="submit" formaction="?handler=StartHosts" data-host-action="start" data-progress-action="start" disabled>Start selected</button><button class="secondary-button" type="submit" formaction="?handler=RestartHosts" data-host-action="restart" data-progress-action="restart" disabled>Restart selected</button><button class="secondary-button" type="submit" formaction="?handler=StopHosts" data-host-action="stop" data-progress-action="stop" disabled>Stop selected</button><span class="muted" id="selectionCount">0 selected</span>
-            </div>
-            <div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr></thead><tbody>
-            @foreach (var host in hosts.OrderBy(h => h.Name))
-            {
-                var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase); var isDraining = host.AllowNewSession == false;
-                <tr class="selectable-host-row" tabindex="0" role="checkbox" aria-checked="false"><td><input class="host-selector" type="checkbox" name="selectedSessionHosts" value="@host.Name" aria-label="Select @host.Name" hidden /><strong>@host.Name</strong></td><td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td><td><span class="status-pill @(isDraining ? "status-warn" : "status-neutral")">@(isDraining ? "On" : "Off")</span></td><td><strong>@(host.Sessions ?? 0)</strong></td><td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td><td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td><td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td></tr>
-            }
-            </tbody></table></div>
-        </form>
-    }
+    @if (hosts.Count == 0) { <div class="empty-state"><strong>No registered session hosts</strong><p>Use Re-scan host pool after a host is registered in Azure Virtual Desktop.</p></div> } else { <form method="post" id="hostOperationsForm"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="allowNewSession" id="allowNewSession" value="false" /><div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px;"><button class="secondary-button" type="button" id="selectAllHosts">Select all</button><button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="false" data-progress-action="drain" disabled>Drain selected</button><button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="true" data-progress-action="allow" disabled>Allow sessions</button><button class="secondary-button" type="submit" formaction="?handler=StartHosts" data-host-action="start" data-progress-action="start" disabled>Start selected</button><button class="secondary-button" type="submit" formaction="?handler=RestartHosts" data-host-action="restart" data-progress-action="restart" disabled>Restart selected</button><button class="secondary-button" type="submit" formaction="?handler=StopHosts" data-host-action="stop" data-progress-action="stop" disabled>Stop selected</button><span class="muted" id="selectionCount">0 selected</span></div><div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr></thead><tbody>@foreach (var host in hosts.OrderBy(h => h.Name)) { var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase); var isDraining = host.AllowNewSession == false; <tr class="selectable-host-row" tabindex="0" role="checkbox" aria-checked="false"><td><input class="host-selector" type="checkbox" name="selectedSessionHosts" value="@host.Name" aria-label="Select @host.Name" hidden /><strong>@host.Name</strong></td><td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td><td><span class="status-pill @(isDraining ? "status-warn" : "status-neutral")">@(isDraining ? "On" : "Off")</span></td><td><strong>@(host.Sessions ?? 0)</strong></td><td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td><td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td><td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td></tr> }</tbody></table></div></form> }
 </section>
-
 <section class="panel" style="margin-top:16px;">
-    <div class="panel-heading-row">
-        <div><h2>User sessions</h2><p class="muted">Live Azure Virtual Desktop sessions for this host pool. Logging off a session immediately disconnects the user and closes their session.</p></div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
-            @if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0)
-            {
-                <label for="sessionHostFilter" class="muted" style="font-size:.8rem;">Session host</label>
-                <select id="sessionHostFilter" class="secondary-button" style="min-width:240px;padding-right:34px;">
-                    <option value="">All session hosts</option>
-                    @foreach (var hostName in sessionHostNames)
-                    {
-                        <option value="@hostName">@hostName</option>
-                    }
-                </select>
-            }
-            <small class="last-scan" id="visibleSessionCount">@Model.UserSessions.Count session(s)</small>
-            @if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0)
-            {
-                <form method="post" asp-page-handler="LogoffAllSessions" data-progress-label="Logging off all user sessions…" onsubmit="return window.confirm('Log off ALL @Model.UserSessions.Count user session(s) from @pool.HostPoolName? This will immediately disconnect every user in this host pool and close their sessions.');">
-                    <input type="hidden" name="id" value="@pool.HostPoolName" />
-                    <button class="secondary-button" type="submit">Log off all users</button>
-                </form>
-            }
-        </div>
-    </div>
-    @if (!string.IsNullOrWhiteSpace(Model.UserSessionsError))
-    {
-        <div class="status-message status-bad">Could not read user sessions: @Model.UserSessionsError</div>
-    }
-    else if (Model.UserSessions.Count == 0)
-    {
-        <div class="empty-state"><strong>No user sessions</strong><p>There are currently no Azure Virtual Desktop user sessions in this host pool.</p></div>
-    }
-    else
-    {
-        <div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>User</th><th>Session host</th><th>State</th><th>Session ID</th><th>Connected</th><th style="text-align:right;">Action</th></tr></thead><tbody id="userSessionsBody">
-        @foreach (var session in Model.UserSessions)
-        {
-            var isActive = string.Equals(session.SessionState, "Active", StringComparison.OrdinalIgnoreCase);
-            <tr class="user-session-row" data-session-host="@session.SessionHostName"><td><strong>@session.UserPrincipalName</strong>@if (!string.IsNullOrWhiteSpace(session.ActiveDirectoryUserName) && !string.Equals(session.ActiveDirectoryUserName, session.UserPrincipalName, StringComparison.OrdinalIgnoreCase)) { <small>@session.ActiveDirectoryUserName</small> }</td><td><strong>@session.SessionHostName</strong></td><td><span class="status-pill @(isActive ? "status-good" : "status-neutral")">@session.SessionState</span></td><td><strong>@session.SessionId</strong></td><td>@(session.CreateTimeUtc?.ToLocalTime().ToString("g") ?? "—")</td><td style="text-align:right;"><form method="post" asp-page-handler="LogoffSession" data-progress-label="Logging off user session…" onsubmit="return window.confirm('Log off @session.UserPrincipalName from @session.SessionHostName? This will disconnect the user and close their session.');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="userSessionResourceId" value="@session.ResourceId" /><button class="secondary-button" type="submit">Log off</button></form></td></tr>
-        }
-        </tbody></table></div>
-        <div class="empty-state" id="userSessionsFilteredEmpty" hidden><strong>No sessions on this host</strong><p>The selected session host currently has no user sessions.</p></div>
+    <div class="panel-heading-row"><div><h2>User sessions</h2><p class="muted">Click a user row to select it. Filter by session host if needed, then log off the selected sessions.</p></div><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">@if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0) { <label for="sessionHostFilter" class="muted" style="font-size:.8rem;">Session host</label><select id="sessionHostFilter" class="secondary-button" style="min-width:240px;padding-right:34px;"><option value="">All session hosts</option>@foreach (var hostName in sessionHostNames) { <option value="@hostName">@hostName</option> }</select> }<small class="last-scan" id="visibleSessionCount">@Model.UserSessions.Count session(s)</small></div></div>
+    @if (!string.IsNullOrWhiteSpace(Model.UserSessionsError)) { <div class="status-message status-bad">Could not read user sessions: @Model.UserSessionsError</div> } else if (Model.UserSessions.Count == 0) { <div class="empty-state"><strong>No user sessions</strong><p>There are currently no Azure Virtual Desktop user sessions in this host pool.</p></div> } else {
+        <form method="post" asp-page-handler="LogoffSelectedSessions" id="userSessionOperationsForm" data-progress-label="Logging off selected user sessions…"><input type="hidden" name="id" value="@pool.HostPoolName" /><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px;"><button class="secondary-button" type="button" id="selectVisibleSessions">Select visible</button><button class="secondary-button" type="submit" id="logoffSelectedSessions" disabled>Log off selected users</button><span class="muted" id="userSessionSelectionCount">0 selected</span></div><div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>User</th><th>Session host</th><th>State</th><th>Session ID</th><th>Connected</th><th style="text-align:right;">Action</th></tr></thead><tbody id="userSessionsBody">@foreach (var session in Model.UserSessions) { var isActive = string.Equals(session.SessionState, "Active", StringComparison.OrdinalIgnoreCase); <tr class="user-session-row selectable-host-row" data-session-host="@session.SessionHostName" tabindex="0" role="checkbox" aria-checked="false"><td><input class="user-session-selector" type="checkbox" name="selectedUserSessionIds" value="@session.ResourceId" aria-label="Select @session.UserPrincipalName" hidden /><strong>@session.UserPrincipalName</strong>@if (!string.IsNullOrWhiteSpace(session.ActiveDirectoryUserName) && !string.Equals(session.ActiveDirectoryUserName, session.UserPrincipalName, StringComparison.OrdinalIgnoreCase)) { <small>@session.ActiveDirectoryUserName</small> }</td><td><strong>@session.SessionHostName</strong></td><td><span class="status-pill @(isActive ? "status-good" : "status-neutral")">@session.SessionState</span></td><td><strong>@session.SessionId</strong></td><td>@(session.CreateTimeUtc?.ToLocalTime().ToString("g") ?? "—")</td><td style="text-align:right;"><button class="secondary-button individual-session-logoff" type="button" data-session-id="@session.ResourceId" data-user="@session.UserPrincipalName" data-host="@session.SessionHostName">Log off</button></td></tr> }</tbody></table></div><div class="empty-state" id="userSessionsFilteredEmpty" hidden><strong>No sessions on this host</strong><p>The selected session host currently has no user sessions.</p></div></form>
     }
 </section>
-
 <section class="panel" style="margin-top:16px;"><h2>Operational controls</h2><p class="muted">Drain mode, user-session logoff, scaling-plan state and VM start/restart/stop use Azure Resource Manager directly. Stop deallocates the backing Azure VM and is allowed only when the selected session host is already in drain mode. Restart can interrupt active user sessions, so AVD Manager always asks for confirmation. The top bar shows operation progress until Azure reports completion. Deployment remains a separate Azure Automation workflow.</p><div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;"><button class="secondary-button" disabled>Deploy hosts</button></div></section>
-
 <script>
 (() => {
     const form = document.getElementById('hostOperationsForm');
     if (form) {
-        const selectors = Array.from(form.querySelectorAll('.host-selector')); const rows = Array.from(form.querySelectorAll('.selectable-host-row')); const selectAll = document.getElementById('selectAllHosts'); const count = document.getElementById('selectionCount'); const actionValue = document.getElementById('allowNewSession'); const buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]')); const progress = document.getElementById('operationProgress'); const progressText = document.getElementById('operationProgressText'); const progressCount = document.getElementById('operationProgressCount'); let confirmedButton = null;
-        function updateSelection() { const selected = selectors.filter(item => item.checked).length; count.textContent = `${selected} selected`; buttons.forEach(button => button.disabled = selected === 0); rows.forEach(row => { const selector = row.querySelector('.host-selector'); const isSelected = selector?.checked === true; row.classList.toggle('is-selected', isSelected); row.setAttribute('aria-checked', isSelected ? 'true' : 'false'); }); if (selectAll) selectAll.textContent = selected === selectors.length ? 'Clear selection' : 'Select all'; }
+        const selectors = Array.from(form.querySelectorAll('.host-selector')), rows = Array.from(form.querySelectorAll('.selectable-host-row')), selectAll = document.getElementById('selectAllHosts'), count = document.getElementById('selectionCount'), actionValue = document.getElementById('allowNewSession'), buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]')), progress = document.getElementById('operationProgress'), progressText = document.getElementById('operationProgressText'), progressCount = document.getElementById('operationProgressCount'); let confirmedButton = null;
+        function updateSelection() { const selected = selectors.filter(i => i.checked).length; count.textContent = `${selected} selected`; buttons.forEach(b => b.disabled = selected === 0); rows.forEach(row => { const selector = row.querySelector('.host-selector'); const selectedRow = selector?.checked === true; row.classList.toggle('is-selected', selectedRow); row.setAttribute('aria-checked', selectedRow ? 'true' : 'false'); }); if (selectAll) selectAll.textContent = selected === selectors.length ? 'Clear selection' : 'Select all'; }
         function toggleRow(row) { const selector = row.querySelector('.host-selector'); if (!selector || selector.disabled) return; selector.checked = !selector.checked; updateSelection(); }
-        rows.forEach(row => { row.addEventListener('click', event => { if (event.target.closest('button, a, input, select, textarea')) return; toggleRow(row); }); row.addEventListener('keydown', event => { if (event.key !== 'Enter' && event.key !== ' ') return; event.preventDefault(); toggleRow(row); }); });
-        function preserveSelectedHosts() { form.querySelectorAll('input[data-progress-selection]').forEach(input => input.remove()); selectors.filter(selector => selector.checked).forEach(selector => { const hidden = document.createElement('input'); hidden.type = 'hidden'; hidden.name = 'selectedSessionHosts'; hidden.value = selector.value; hidden.dataset.progressSelection = 'true'; form.appendChild(hidden); }); }
-        function showProgress(action, selected) { if (!progress || !progressText || !progressCount) return; const labels = { drain: 'Applying drain mode…', allow: 'Allowing new sessions…', start: 'Starting session host VM(s)…', restart: 'Restarting session host VM(s)…', stop: 'Stopping and deallocating VM(s)…' }; progressText.textContent = labels[action] || 'Working…'; progressCount.textContent = `${selected} host(s)`; progress.hidden = false; progress.classList.remove('is-complete'); progress.classList.add('is-indeterminate'); document.querySelector('.top-status-message')?.remove(); buttons.forEach(button => button.disabled = true); selectors.forEach(selector => selector.disabled = true); if (selectAll) selectAll.disabled = true; }
-        selectors.forEach(selector => selector.addEventListener('change', updateSelection)); selectAll?.addEventListener('click', () => { const shouldSelectAll = selectors.some(selector => !selector.checked); selectors.forEach(selector => selector.checked = shouldSelectAll); updateSelection(); });
-        form.querySelectorAll('[data-drain-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const allow = button.dataset.drainAction === 'true'; const action = allow ? 'allow new sessions on' : 'place into drain mode'; if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${selected} selected session host(s)? Existing sessions will not be disconnected.`)) { event.preventDefault(); return; } actionValue.value = allow ? 'true' : 'false'; confirmedButton = button; }));
-        form.querySelectorAll('[data-host-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const action = button.dataset.hostAction; const prompt = action === 'start' ? `Start the backing Azure VM for ${selected} selected session host(s)?` : action === 'restart' ? `Restart the backing Azure VM for ${selected} selected session host(s)? This can disconnect or interrupt active user sessions.` : `Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`; if (!window.confirm(prompt)) { event.preventDefault(); return; } confirmedButton = button; }));
-        form.addEventListener('submit', () => { const selected = selectors.filter(item => item.checked).length; const action = confirmedButton?.dataset.progressAction; if (action && selected > 0) { preserveSelectedHosts(); showProgress(action, selected); } }); updateSelection();
+        rows.forEach(row => { row.addEventListener('click', e => { if (e.target.closest('button, a, input, select, textarea')) return; toggleRow(row); }); row.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); toggleRow(row); }); });
+        function preserveSelectedHosts() { form.querySelectorAll('input[data-progress-selection]').forEach(i => i.remove()); selectors.filter(s => s.checked).forEach(s => { const hidden = document.createElement('input'); hidden.type='hidden'; hidden.name='selectedSessionHosts'; hidden.value=s.value; hidden.dataset.progressSelection='true'; form.appendChild(hidden); }); }
+        function showProgress(action, selected) { if (!progress || !progressText || !progressCount) return; const labels={drain:'Applying drain mode…',allow:'Allowing new sessions…',start:'Starting session host VM(s)…',restart:'Restarting session host VM(s)…',stop:'Stopping and deallocating VM(s)…'}; progressText.textContent=labels[action]||'Working…'; progressCount.textContent=`${selected} host(s)`; progress.hidden=false; progress.classList.remove('is-complete'); progress.classList.add('is-indeterminate'); document.querySelector('.top-status-message')?.remove(); buttons.forEach(b=>b.disabled=true); selectors.forEach(s=>s.disabled=true); if(selectAll)selectAll.disabled=true; }
+        selectors.forEach(s=>s.addEventListener('change',updateSelection)); selectAll?.addEventListener('click',()=>{const all=selectors.some(s=>!s.checked);selectors.forEach(s=>s.checked=all);updateSelection();});
+        form.querySelectorAll('[data-drain-action]').forEach(button=>button.addEventListener('click',e=>{const selected=selectors.filter(i=>i.checked).length,allow=button.dataset.drainAction==='true',action=allow?'allow new sessions on':'place into drain mode';if(!window.confirm(`${action.charAt(0).toUpperCase()+action.slice(1)} ${selected} selected session host(s)? Existing sessions will not be disconnected.`)){e.preventDefault();return;}actionValue.value=allow?'true':'false';confirmedButton=button;}));
+        form.querySelectorAll('[data-host-action]').forEach(button=>button.addEventListener('click',e=>{const selected=selectors.filter(i=>i.checked).length,action=button.dataset.hostAction,prompt=action==='start'?`Start the backing Azure VM for ${selected} selected session host(s)?`:action==='restart'?`Restart the backing Azure VM for ${selected} selected session host(s)? This can disconnect or interrupt active user sessions.`:`Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`;if(!window.confirm(prompt)){e.preventDefault();return;}confirmedButton=button;})); form.addEventListener('submit',()=>{const selected=selectors.filter(i=>i.checked).length,action=confirmedButton?.dataset.progressAction;if(action&&selected>0){preserveSelectedHosts();showProgress(action,selected);}}); updateSelection();
     }
 
-    const sessionHostFilter = document.getElementById('sessionHostFilter');
-    if (sessionHostFilter) {
-        const sessionRows = Array.from(document.querySelectorAll('.user-session-row'));
-        const visibleSessionCount = document.getElementById('visibleSessionCount');
-        const filteredEmpty = document.getElementById('userSessionsFilteredEmpty');
-        sessionHostFilter.addEventListener('change', () => {
-            const selectedHost = sessionHostFilter.value.toLowerCase();
-            let visible = 0;
-            sessionRows.forEach(row => {
-                const matches = !selectedHost || (row.dataset.sessionHost || '').toLowerCase() === selectedHost;
-                row.hidden = !matches;
-                if (matches) visible++;
-            });
-            if (visibleSessionCount) visibleSessionCount.textContent = selectedHost ? `${visible} of ${sessionRows.length} session(s)` : `${sessionRows.length} session(s)`;
-            if (filteredEmpty) filteredEmpty.hidden = visible > 0;
-        });
+    const sessionForm=document.getElementById('userSessionOperationsForm');
+    if(sessionForm){
+        const filter=document.getElementById('sessionHostFilter'), rows=Array.from(sessionForm.querySelectorAll('.user-session-row')), selectors=Array.from(sessionForm.querySelectorAll('.user-session-selector')), count=document.getElementById('userSessionSelectionCount'), visibleCount=document.getElementById('visibleSessionCount'), empty=document.getElementById('userSessionsFilteredEmpty'), selectVisible=document.getElementById('selectVisibleSessions'), logoff=document.getElementById('logoffSelectedSessions');
+        const visibleRows=()=>rows.filter(row=>!row.hidden);
+        function updateSessions(){const selected=selectors.filter(s=>s.checked).length;count.textContent=`${selected} selected`;logoff.disabled=selected===0;rows.forEach(row=>{const s=row.querySelector('.user-session-selector'),on=s?.checked===true;row.classList.toggle('is-selected',on);row.setAttribute('aria-checked',on?'true':'false');});const visible=visibleRows(),allVisible=visible.length>0&&visible.every(row=>row.querySelector('.user-session-selector')?.checked);selectVisible.textContent=allVisible?'Clear visible':'Select visible';}
+        function applyFilter(){const host=(filter?.value||'').toLowerCase();let visible=0;rows.forEach(row=>{const match=!host||(row.dataset.sessionHost||'').toLowerCase()===host;row.hidden=!match;if(match)visible++;});if(visibleCount)visibleCount.textContent=host?`${visible} of ${rows.length} session(s)`:`${rows.length} session(s)`;if(empty)empty.hidden=visible>0;updateSessions();}
+        rows.forEach(row=>{row.addEventListener('click',e=>{if(e.target.closest('button,a,input,select,textarea'))return;const s=row.querySelector('.user-session-selector');if(s){s.checked=!s.checked;updateSessions();}});row.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;e.preventDefault();const s=row.querySelector('.user-session-selector');if(s){s.checked=!s.checked;updateSessions();}});});
+        selectVisible.addEventListener('click',()=>{const visible=visibleRows(),should=visible.some(row=>!row.querySelector('.user-session-selector')?.checked);visible.forEach(row=>{const s=row.querySelector('.user-session-selector');if(s)s.checked=should;});updateSessions();});
+        filter?.addEventListener('change',applyFilter);
+        sessionForm.addEventListener('submit',e=>{const selected=selectors.filter(s=>s.checked).length;if(!window.confirm(`Log off ${selected} selected user session(s)? This will immediately disconnect the selected users and close their sessions.`))e.preventDefault();});
+        sessionForm.querySelectorAll('.individual-session-logoff').forEach(button=>button.addEventListener('click',()=>{if(!window.confirm(`Log off ${button.dataset.user} from ${button.dataset.host}? This will disconnect the user and close their session.`))return;selectors.forEach(s=>s.checked=s.value===button.dataset.sessionId);updateSessions();sessionForm.requestSubmit();}));
+        applyFilter();
     }
 })();
 </script>
