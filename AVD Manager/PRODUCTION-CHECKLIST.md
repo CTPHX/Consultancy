@@ -12,7 +12,7 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 
 ## Azure discovery and operational identity
 - [ ] Use production App Service managed identity/service identity for ARM access.
-- [ ] Keep discovery at least-privilege Reader scope and separately document the minimum operational permissions needed for direct AVD session-host updates.
+- [ ] Keep discovery at least-privilege Reader scope and separately document the minimum operational permissions needed for direct AVD session-host updates and Compute VM power operations.
 - [ ] **Remove the temporary development Contributor assignment from the AVD Manager service identity before production.** Contributor is currently acceptable only as a development shortcut and should be assigned at the narrowest practical resource-group scope, not subscription-wide.
 - [ ] Maintain `ACCESS-REQUIREMENTS.md` as the permission ledger while features are built; record every required ARM action/DataAction, identity, operation and intended scope as it is discovered.
 - [ ] Build and test production least-privilege custom role definition(s) from the completed access-requirements ledger rather than granting broad Contributor.
@@ -23,14 +23,16 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Keep the existing Automation Account managed identity as the privileged execution identity for complex runbook workflows such as deployment, image management and FSLogix operations.
 - [ ] Give the web application only minimum start/read rights for approved runbooks when an operation actually requires Automation; do not grant broad Contributor.
 - [ ] Restrict runbooks, validate/whitelist parameters server-side, and audit destructive operations.
-- [ ] Keep simple AVD resource state operations such as session-host drain mode on the direct ARM API path rather than routing them through Automation.
+- [ ] Keep simple AVD/Compute resource state operations such as session-host drain mode and VM start/stop on the direct ARM API path rather than routing them through Automation.
 
-## Direct AVD operational API
-- [ ] Add authorization/app-role checks and durable audit records around single and bulk drain-mode changes.
+## Direct AVD / Compute operational API
+- [ ] Add authorization/app-role checks and durable audit records around drain-mode and VM power operations.
 - [ ] Replace raw Azure authorization/API messages shown to users with friendly errors while retaining structured diagnostic detail in protected logs.
 - [ ] Add retry/backoff and partial-failure handling for bulk host operations; never silently report a partially successful bulk action as fully successful.
-- [ ] Reconcile UI state from Azure after direct operations and record the requested and resulting `allowNewSession` state.
-- [ ] Confirm the production custom role includes the exact session-host write permission required for drain mode (`Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`) plus only the read permissions required by the implemented UI.
+- [ ] Reconcile UI state from Azure after direct operations and record requested/resulting drain and VM power state.
+- [ ] Confirm the production custom role includes `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`, `Microsoft.Compute/virtualMachines/start/action`, `Microsoft.Compute/virtualMachines/deallocate/action`, and only the read permissions required by the implemented UI.
+- [ ] Keep the stop/deallocate safety rule enforced server-side: selected AVD session hosts must already be in drain mode before their backing VM can be stopped.
+- [ ] Add explicit VM power-state display/reconciliation so operators can distinguish AVD registration status from Azure VM running/deallocated state.
 
 ## Secrets and configuration
 - [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate Development/Test/Production configuration.
