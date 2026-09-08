@@ -12,21 +12,25 @@ public sealed class HostPoolModel : PageModel
     private readonly HostPoolRefreshService _hostPoolRefresh;
     private readonly HostPoolDetailService _hostPoolDetail;
     private readonly AvdSessionHostOperationsService _sessionHostOperations;
+    private readonly AvdUserSessionService _userSessionService;
     private readonly AzureVmOperationsService _vmOperations;
 
-    public HostPoolModel(EnvironmentConfigurationStore environmentStore, HostPoolRefreshService hostPoolRefresh, HostPoolDetailService hostPoolDetail, AvdSessionHostOperationsService sessionHostOperations, AzureVmOperationsService vmOperations)
+    public HostPoolModel(EnvironmentConfigurationStore environmentStore, HostPoolRefreshService hostPoolRefresh, HostPoolDetailService hostPoolDetail, AvdSessionHostOperationsService sessionHostOperations, AvdUserSessionService userSessionService, AzureVmOperationsService vmOperations)
     {
         _environmentStore = environmentStore;
         _hostPoolRefresh = hostPoolRefresh;
         _hostPoolDetail = hostPoolDetail;
         _sessionHostOperations = sessionHostOperations;
+        _userSessionService = userSessionService;
         _vmOperations = vmOperations;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public SavedHostPoolConfiguration? HostPool { get; private set; }
     public IReadOnlyList<ScalingPlanReference> ScalingPlans { get; private set; } = [];
+    public IReadOnlyList<AvdUserSession> UserSessions { get; private set; } = [];
     public string? ScalingPlanError { get; private set; }
+    public string? UserSessionsError { get; private set; }
 
     [TempData] public string? StatusMessage { get; set; }
     [TempData] public string? ErrorMessage { get; set; }
@@ -41,7 +45,36 @@ public sealed class HostPoolModel : PageModel
         HostPool = pool;
         try { ScalingPlans = await _hostPoolDetail.GetScalingPlansAsync(environment.SubscriptionId, pool.HostPoolId, cancellationToken); }
         catch (Exception ex) { ScalingPlanError = ex.Message; }
+        var hostPoolResourceGroup = GetResourceGroupFromArmId(pool.HostPoolId);
+        if (!string.IsNullOrWhiteSpace(hostPoolResourceGroup))
+        {
+            try { UserSessions = await _userSessionService.ListByHostPoolAsync(environment.SubscriptionId, hostPoolResourceGroup, pool.HostPoolName, cancellationToken); }
+            catch (Exception ex) { UserSessionsError = ex.Message; }
+        }
+        else UserSessionsError = "AVD Manager could not resolve the host pool resource group.";
         return Page();
+    }
+
+    public async Task<IActionResult> OnPostLogoffSessionAsync(string id, string userSessionResourceId, CancellationToken cancellationToken)
+    {
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null) return RedirectToPage("/Onboarding");
+        var pool = FindPool(environment, id);
+        if (pool is null) return NotFound();
+        var hostPoolResourceGroup = GetResourceGroupFromArmId(pool.HostPoolId);
+        if (string.IsNullOrWhiteSpace(hostPoolResourceGroup)) { ErrorMessage = "AVD Manager could not resolve the host pool resource group."; return RedirectToPage(new { id = pool.HostPoolName }); }
+
+        try
+        {
+            var currentSessions = await _userSessionService.ListByHostPoolAsync(environment.SubscriptionId, hostPoolResourceGroup, pool.HostPoolName, cancellationToken);
+            var session = currentSessions.FirstOrDefault(item => item.ResourceId.Equals(userSessionResourceId, StringComparison.OrdinalIgnoreCase));
+            if (session is null) { ErrorMessage = "The selected user session no longer exists in this host pool. Refresh and try again."; return RedirectToPage(new { id = pool.HostPoolName }); }
+            await _userSessionService.LogoffAsync(session.ResourceId, cancellationToken);
+            StatusMessage = $"Logged off {session.UserPrincipalName} from {session.SessionHostName}.";
+            await TryRefreshAsync(environment, pool, cancellationToken);
+        }
+        catch (Exception ex) { ErrorMessage = $"Could not log off user session: {ex.Message}"; }
+        return RedirectToPage(new { id = pool.HostPoolName });
     }
 
     public async Task<IActionResult> OnPostRescanAsync(string id, CancellationToken cancellationToken)
@@ -66,22 +99,15 @@ public sealed class HostPoolModel : PageModel
         if (environment is null) return RedirectToPage("/Onboarding");
         var pool = FindPool(environment, id);
         if (pool is null) return NotFound();
-
         try
         {
             var plans = await _hostPoolDetail.GetScalingPlansAsync(environment.SubscriptionId, pool.HostPoolId, cancellationToken);
             var plan = plans.FirstOrDefault(item => item.ResourceId.Equals(scalingPlanId, StringComparison.OrdinalIgnoreCase));
-            if (plan is null)
-            {
-                ErrorMessage = "The selected scaling plan is no longer associated with this host pool. Refresh and try again.";
-                return RedirectToPage(new { id = pool.HostPoolName });
-            }
-
+            if (plan is null) { ErrorMessage = "The selected scaling plan is no longer associated with this host pool. Refresh and try again."; return RedirectToPage(new { id = pool.HostPoolName }); }
             await _hostPoolDetail.SetScalingPlanEnabledAsync(plan.ResourceId, pool.HostPoolId, enabled, cancellationToken);
             StatusMessage = $"Scaling plan {plan.Name} {(enabled ? "enabled" : "disabled")}.";
         }
         catch (Exception ex) { ErrorMessage = $"Could not update scaling plan: {ex.Message}"; }
-
         return RedirectToPage(new { id = pool.HostPoolName });
     }
 
