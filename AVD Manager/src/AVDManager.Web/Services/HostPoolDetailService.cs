@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Azure.Core;
 
 namespace AVDManager.Web.Services;
@@ -84,10 +86,67 @@ public sealed class HostPoolDetailService
                 enabled = enabledElement.GetBoolean();
             }
 
-            matches.Add(new ScalingPlanReference(name!, enabled));
+            matches.Add(new ScalingPlanReference(scalingPlanId, name!, enabled));
         }
 
         return matches.OrderBy(plan => plan.Name).ToList();
+    }
+
+    public async Task SetScalingPlanEnabledAsync(
+        string scalingPlanId,
+        string hostPoolId,
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        var scalingPlanUrl = $"https://management.azure.com{scalingPlanId}?api-version={DesktopVirtualizationApiVersion}";
+        using var document = await GetArmJsonAsync(scalingPlanUrl, cancellationToken);
+
+        if (!document.RootElement.TryGetProperty("properties", out var properties) ||
+            !properties.TryGetProperty("hostPoolReferences", out var references) ||
+            references.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("The scaling plan does not contain host pool references.");
+        }
+
+        var updatedReferences = new JsonArray();
+        var foundHostPool = false;
+
+        foreach (var reference in references.EnumerateArray())
+        {
+            var node = JsonNode.Parse(reference.GetRawText()) as JsonObject
+                ?? throw new InvalidOperationException("Azure returned an invalid scaling plan host pool reference.");
+
+            if (reference.TryGetProperty("hostPoolArmPath", out var path) &&
+                string.Equals(path.GetString()?.TrimEnd('/'), hostPoolId.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            {
+                node["scalingPlanEnabled"] = enabled;
+                foundHostPool = true;
+            }
+
+            updatedReferences.Add(node);
+        }
+
+        if (!foundHostPool)
+            throw new InvalidOperationException("The selected scaling plan is no longer associated with this host pool.");
+
+        var payload = new JsonObject
+        {
+            ["properties"] = new JsonObject
+            {
+                ["hostPoolReferences"] = updatedReferences
+            }
+        };
+
+        var token = await _credential.GetTokenAsync(new TokenRequestContext(ArmScopes), cancellationToken);
+        var client = _httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Patch, scalingPlanUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Azure Resource Manager returned {(int)response.StatusCode}: {body}");
     }
 
     private async Task<JsonDocument> GetArmJsonAsync(string url, CancellationToken cancellationToken)
@@ -105,4 +164,4 @@ public sealed class HostPoolDetailService
     }
 }
 
-public sealed record ScalingPlanReference(string Name, bool? Enabled);
+public sealed record ScalingPlanReference(string ResourceId, string Name, bool? Enabled);
