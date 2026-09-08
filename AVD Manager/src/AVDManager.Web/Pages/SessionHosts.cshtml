@@ -16,10 +16,6 @@
     <a class="secondary-button link-button" href="/Settings">Re-scan environment</a>
 </div>
 
-@if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
-{
-    <div class="status-message status-good" style="margin-bottom: 16px;">@Model.StatusMessage</div>
-}
 @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
 {
     <div class="status-message status-bad" style="margin-bottom: 16px;">@Model.ErrorMessage</div>
@@ -48,10 +44,19 @@ else
 {
     @foreach (var pool in Model.HostPools)
     {
+        var showManualRescanMessage = !string.IsNullOrWhiteSpace(Model.ManualRescanMessage) &&
+                                      string.Equals(Model.ManualRescanHostPoolId, pool.HostPoolId, StringComparison.OrdinalIgnoreCase);
+
         <section class="panel session-host-panel" style="margin-bottom: 16px;" data-host-pool-id="@pool.HostPoolId">
             <div class="panel-heading-row">
                 <div>
-                    <span class="eyebrow">HOST POOL</span>
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <span class="eyebrow">HOST POOL</span>
+                        @if (showManualRescanMessage)
+                        {
+                            <span class="status-pill status-good">@Model.ManualRescanMessage</span>
+                        }
+                    </div>
                     <h2>@pool.HostPoolName</h2>
                     <p class="muted">@pool.HostPoolLocation · @pool.SessionHosts.Count session host(s) · @pool.AvailableHosts available · @pool.ActiveSessions active session(s)</p>
                     <small class="last-scan">Last scanned @pool.LastScannedAtUtc.ToLocalTime().ToString("g")</small>
@@ -71,6 +76,7 @@ else
                     }
                     <form method="post" asp-page-handler="RescanHostPool" class="host-pool-rescan-form">
                         <input type="hidden" name="hostPoolId" value="@pool.HostPoolId" />
+                        <input type="hidden" name="automatic" value="false" />
                         <button class="secondary-button host-pool-rescan-button" type="submit">Re-scan host pool</button>
                     </form>
                 </div>
@@ -109,7 +115,7 @@ else
     }
 }
 
-<p class="mapping-note">This page checks Azure Virtual Desktop every 30 seconds while it is open. If a host is added, removed, changes availability, drain mode or session count, AVD Manager automatically refreshes the page. The Re-scan host pool button forces an immediate targeted refresh. Use Settings to re-scan the whole Azure environment when host pools or other environment resources are added or removed.</p>
+<p class="mapping-note">This page checks Azure Virtual Desktop every 30 seconds while it is open. If a host is added, removed, changes availability, drain mode or session count, AVD Manager automatically refreshes the affected host pool. The Re-scan host pool button forces an immediate targeted refresh. Use Settings to re-scan the whole Azure environment when host pools or other environment resources are added or removed.</p>
 
 <script>
 (() => {
@@ -139,6 +145,8 @@ else
                         button.textContent = 'Updating…';
                     }
                     if (form) {
+                        const automatic = form.querySelector('input[name="automatic"]');
+                        if (automatic) automatic.value = 'true';
                         form.requestSubmit();
                         return;
                     }
