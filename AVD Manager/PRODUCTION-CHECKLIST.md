@@ -19,6 +19,11 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Keep the existing Automation Account managed identity as the privileged execution identity.
 - [ ] Give the web application only minimum start/read rights for approved runbooks; do not grant broad Contributor.
 - [ ] Restrict runbooks, validate/whitelist parameters server-side, and audit destructive operations.
+- [ ] Publish and version the `Set-AVDSessionHostDrainMode` runbook during environment onboarding/deployment rather than relying on a manually imported runbook.
+- [ ] Persist the exact Automation Account mapping per environment/host pool; current development drain-mode submission infers the account when exactly one exists in the configured Automation resource group.
+- [ ] Replace raw Azure Automation API error bodies shown to users with friendly errors while retaining structured diagnostic detail in protected logs.
+- [ ] Add Automation job polling/status reconciliation so drain-mode controls show queued/running/succeeded/failed and refresh the host-pool state after completion.
+- [ ] Add authorization/app-role checks and audit records around drain-mode and all future operational actions.
 
 ## Secrets and configuration
 - [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate Development/Test/Production configuration.
