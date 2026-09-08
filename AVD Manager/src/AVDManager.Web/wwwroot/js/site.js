@@ -41,4 +41,22 @@
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') setInfoOpen(false);
   });
+
+  document.querySelectorAll('form[data-progress-label]').forEach(form => {
+    form.addEventListener('submit', event => {
+      if (event.defaultPrevented) return;
+      const progress = document.getElementById('operationProgress');
+      const progressText = document.getElementById('operationProgressText');
+      const progressCount = document.getElementById('operationProgressCount');
+      if (!progress || !progressText || !progressCount) return;
+
+      progressText.textContent = form.dataset.progressLabel || 'Working…';
+      progressCount.textContent = '';
+      progress.hidden = false;
+      progress.classList.remove('is-complete');
+      progress.classList.add('is-indeterminate');
+      document.querySelector('.top-status-message')?.remove();
+      form.querySelectorAll('button, input[type="submit"]').forEach(control => control.disabled = true);
+    });
+  });
 })();
