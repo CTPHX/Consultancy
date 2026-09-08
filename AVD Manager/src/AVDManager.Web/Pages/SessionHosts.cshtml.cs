@@ -39,6 +39,29 @@ public sealed class SessionHostsModel : PageModel
         return Page();
     }
 
+    public async Task<IActionResult> OnGetLiveStatusAsync(string hostPoolId, CancellationToken cancellationToken)
+    {
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null)
+            return new JsonResult(new { changed = false, error = "Environment is not configured." }) { StatusCode = 409 };
+
+        var pool = environment.HostPools.FirstOrDefault(p =>
+            p.HostPoolId.Equals(hostPoolId, StringComparison.OrdinalIgnoreCase));
+
+        if (pool is null)
+            return new JsonResult(new { changed = false, error = "Host pool is not part of the saved environment." }) { StatusCode = 404 };
+
+        try
+        {
+            var changed = await _hostPoolRefresh.HasChangedAsync(pool, cancellationToken);
+            return new JsonResult(new { changed });
+        }
+        catch (Exception ex)
+        {
+            return new JsonResult(new { changed = false, error = ex.Message }) { StatusCode = 502 };
+        }
+    }
+
     public async Task<IActionResult> OnPostRescanHostPoolAsync(string hostPoolId, CancellationToken cancellationToken)
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
