@@ -1,3 +1,9 @@
+@using AVDManager.Web.Services
+@inject EnvironmentConfigurationStore EnvironmentStore
+@{
+    var savedEnvironment = await EnvironmentStore.GetAsync(Context.RequestAborted);
+    var environmentLabel = savedEnvironment?.SubscriptionName ?? "No environment selected";
+}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -11,11 +17,11 @@
     <aside class="sidebar">
         <div class="brand"><div class="brand-mark">A</div><div><b>AVD Manager</b><small>By Phoenix Software</small></div></div>
         <nav>
-            <a href="/">Dashboard</a><a href="#">Session Hosts</a><a href="#">Deploy Hosts</a><a href="#">Image Management</a><a href="#">FSLogix Profiles</a><a href="#">Storage Management</a><a href="#">Automation Jobs</a><a href="#">Schedules</a><a href="#">Reports</a><a href="#">Audit Log</a><a href="/Settings">Settings</a>
+            <a href="/">Dashboard</a><a href="/SessionHosts">Session Hosts</a><a href="#">Deploy Hosts</a><a href="#">Image Management</a><a href="#">FSLogix Profiles</a><a href="#">Storage Management</a><a href="#">Automation Jobs</a><a href="#">Schedules</a><a href="#">Reports</a><a href="#">Audit Log</a><a href="/Settings">Settings</a>
         </nav>
     </aside>
     <div class="workspace">
-        <header class="topbar"><span class="environment">No environment selected</span><div class="top-actions"><button id="themeToggle" class="icon-button" title="Switch theme">☾</button><span>AVD Manager</span></div></header>
+        <header class="topbar"><span class="environment">@environmentLabel</span><div class="top-actions"><button id="themeToggle" class="icon-button" title="Switch theme">☾</button><span>AVD Manager</span></div></header>
         <main>@RenderBody()</main>
     </div>
 </div>
