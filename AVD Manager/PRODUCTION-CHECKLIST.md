@@ -23,15 +23,16 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Keep the existing Automation Account managed identity as the privileged execution identity for complex runbook workflows such as deployment, image management and FSLogix operations.
 - [ ] Give the web application only minimum start/read rights for approved runbooks when an operation actually requires Automation; do not grant broad Contributor.
 - [ ] Restrict runbooks, validate/whitelist parameters server-side, and audit destructive operations.
-- [ ] Keep simple AVD/Compute resource state operations such as session-host drain mode and VM start/stop on the direct ARM API path rather than routing them through Automation.
+- [ ] Keep simple AVD/Compute resource state operations such as session-host drain mode and VM start/restart/stop on the direct ARM API path rather than routing them through Automation.
 
 ## Direct AVD / Compute operational API
 - [ ] Add authorization/app-role checks and durable audit records around drain-mode and VM power operations.
 - [ ] Replace raw Azure authorization/API messages shown to users with friendly errors while retaining structured diagnostic detail in protected logs.
 - [ ] Add retry/backoff and partial-failure handling for bulk host operations; never silently report a partially successful bulk action as fully successful.
 - [ ] Reconcile UI state from Azure after direct operations and record requested/resulting drain and VM power state.
-- [ ] Confirm the production custom role includes `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`, `Microsoft.Compute/virtualMachines/start/action`, `Microsoft.Compute/virtualMachines/deallocate/action`, and only the read permissions required by the implemented UI.
+- [ ] Confirm the production custom role includes `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`, `Microsoft.Compute/virtualMachines/start/action`, `Microsoft.Compute/virtualMachines/restart/action`, `Microsoft.Compute/virtualMachines/deallocate/action`, and only the read permissions required by the implemented UI.
 - [ ] Keep the stop/deallocate safety rule enforced server-side: selected AVD session hosts must already be in drain mode before their backing VM can be stopped.
+- [ ] Review restart policy before production: restart currently requires explicit operator confirmation because it can interrupt active sessions; decide whether production should additionally require drain mode and/or zero active sessions.
 - [ ] Add explicit VM power-state display/reconciliation so operators can distinguish AVD registration status from Azure VM running/deallocated state.
 
 ## Secrets and configuration
