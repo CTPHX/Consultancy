@@ -12,17 +12,20 @@ public sealed class HostPoolModel : PageModel
     private readonly HostPoolRefreshService _hostPoolRefresh;
     private readonly HostPoolDetailService _hostPoolDetail;
     private readonly AvdSessionHostOperationsService _sessionHostOperations;
+    private readonly AzureVmOperationsService _vmOperations;
 
     public HostPoolModel(
         EnvironmentConfigurationStore environmentStore,
         HostPoolRefreshService hostPoolRefresh,
         HostPoolDetailService hostPoolDetail,
-        AvdSessionHostOperationsService sessionHostOperations)
+        AvdSessionHostOperationsService sessionHostOperations,
+        AzureVmOperationsService vmOperations)
     {
         _environmentStore = environmentStore;
         _hostPoolRefresh = hostPoolRefresh;
         _hostPoolDetail = hostPoolDetail;
         _sessionHostOperations = sessionHostOperations;
+        _vmOperations = vmOperations;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
@@ -91,35 +94,13 @@ public sealed class HostPoolModel : PageModel
         bool allowNewSession,
         CancellationToken cancellationToken)
     {
-        var environment = await _environmentStore.GetAsync(cancellationToken);
-        if (environment is null)
-            return RedirectToPage("/Onboarding");
+        var selection = await ResolveSelectionAsync(id, selectedSessionHosts, cancellationToken);
+        if (selection.Result is not null)
+            return selection.Result;
 
-        var pool = FindPool(environment, id);
-        if (pool is null)
-            return NotFound();
-
-        var requestedNames = (selectedSessionHosts ?? [])
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (requestedNames.Count == 0)
-        {
-            ErrorMessage = "Select at least one session host first.";
-            return RedirectToPage(new { id = pool.HostPoolName });
-        }
-
-        var selectedHosts = pool.SessionHosts
-            .Where(host => requestedNames.Contains(host.Name, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-
-        if (selectedHosts.Count != requestedNames.Count)
-        {
-            ErrorMessage = "One or more selected session hosts are no longer part of this host pool. Re-scan and try again.";
-            return RedirectToPage(new { id = pool.HostPoolName });
-        }
-
+        var environment = selection.Environment!;
+        var pool = selection.Pool!;
+        var selectedHosts = selection.Hosts!;
         var hostPoolResourceGroup = GetResourceGroupFromArmId(pool.HostPoolId);
         if (string.IsNullOrWhiteSpace(hostPoolResourceGroup))
         {
@@ -151,15 +132,7 @@ public sealed class HostPoolModel : PageModel
 
         if (succeeded.Count > 0)
         {
-            try
-            {
-                await _hostPoolRefresh.RefreshAsync(environment, pool.HostPoolId, cancellationToken);
-            }
-            catch
-            {
-                // The Azure update already succeeded. The normal live refresh can reconcile display state.
-            }
-
+            await TryRefreshAsync(environment, pool, cancellationToken);
             var state = allowNewSession ? "accept new sessions" : "enter drain mode";
             StatusMessage = $"Updated {succeeded.Count} session host(s) to {state}.";
         }
@@ -168,6 +141,146 @@ public sealed class HostPoolModel : PageModel
             ErrorMessage = $"{failures.Count} session host update(s) failed. {string.Join(" | ", failures)}";
 
         return RedirectToPage(new { id = pool.HostPoolName });
+    }
+
+    public Task<IActionResult> OnPostStartHostsAsync(
+        string id,
+        List<string>? selectedSessionHosts,
+        CancellationToken cancellationToken) =>
+        SetVmPowerStateAsync(id, selectedSessionHosts, start: true, cancellationToken);
+
+    public Task<IActionResult> OnPostStopHostsAsync(
+        string id,
+        List<string>? selectedSessionHosts,
+        CancellationToken cancellationToken) =>
+        SetVmPowerStateAsync(id, selectedSessionHosts, start: false, cancellationToken);
+
+    private async Task<IActionResult> SetVmPowerStateAsync(
+        string id,
+        List<string>? selectedSessionHosts,
+        bool start,
+        CancellationToken cancellationToken)
+    {
+        var selection = await ResolveSelectionAsync(id, selectedSessionHosts, cancellationToken);
+        if (selection.Result is not null)
+            return selection.Result;
+
+        var environment = selection.Environment!;
+        var pool = selection.Pool!;
+        var selectedHosts = selection.Hosts!;
+
+        if (!start)
+        {
+            var notDraining = selectedHosts.Where(host => host.AllowNewSession != false).Select(host => host.Name).ToList();
+            if (notDraining.Count > 0)
+            {
+                ErrorMessage = $"Put the selected host(s) into drain mode before stopping them: {string.Join(", ", notDraining)}.";
+                return RedirectToPage(new { id = pool.HostPoolName });
+            }
+        }
+
+        var succeeded = new List<string>();
+        var failures = new List<string>();
+
+        foreach (var sessionHost in selectedHosts)
+        {
+            if (string.IsNullOrWhiteSpace(sessionHost.VmName) || string.IsNullOrWhiteSpace(sessionHost.VmResourceGroup))
+            {
+                failures.Add($"{sessionHost.Name}: backing Azure VM mapping is unavailable; re-scan the host pool and try again.");
+                continue;
+            }
+
+            try
+            {
+                if (start)
+                {
+                    await _vmOperations.StartAsync(
+                        environment.SubscriptionId,
+                        sessionHost.VmResourceGroup,
+                        sessionHost.VmName,
+                        cancellationToken);
+                }
+                else
+                {
+                    await _vmOperations.DeallocateAsync(
+                        environment.SubscriptionId,
+                        sessionHost.VmResourceGroup,
+                        sessionHost.VmName,
+                        cancellationToken);
+                }
+
+                succeeded.Add(sessionHost.Name);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{sessionHost.Name}: {ex.Message}");
+            }
+        }
+
+        if (succeeded.Count > 0)
+        {
+            await TryRefreshAsync(environment, pool, cancellationToken);
+            StatusMessage = start
+                ? $"Started {succeeded.Count} session host VM(s)."
+                : $"Stopped and deallocated {succeeded.Count} session host VM(s).";
+        }
+
+        if (failures.Count > 0)
+        {
+            var action = start ? "start" : "stop";
+            ErrorMessage = $"{failures.Count} session host {action} operation(s) failed. {string.Join(" | ", failures)}";
+        }
+
+        return RedirectToPage(new { id = pool.HostPoolName });
+    }
+
+    private async Task<(EnvironmentConfiguration? Environment, SavedHostPoolConfiguration? Pool, List<SavedSessionHost>? Hosts, IActionResult? Result)> ResolveSelectionAsync(
+        string id,
+        List<string>? selectedSessionHosts,
+        CancellationToken cancellationToken)
+    {
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null)
+            return (null, null, null, RedirectToPage("/Onboarding"));
+
+        var pool = FindPool(environment, id);
+        if (pool is null)
+            return (environment, null, null, NotFound());
+
+        var requestedNames = (selectedSessionHosts ?? [])
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (requestedNames.Count == 0)
+        {
+            ErrorMessage = "Select at least one session host first.";
+            return (environment, pool, null, RedirectToPage(new { id = pool.HostPoolName }));
+        }
+
+        var selectedHosts = pool.SessionHosts
+            .Where(host => requestedNames.Contains(host.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (selectedHosts.Count != requestedNames.Count)
+        {
+            ErrorMessage = "One or more selected session hosts are no longer part of this host pool. Re-scan and try again.";
+            return (environment, pool, null, RedirectToPage(new { id = pool.HostPoolName }));
+        }
+
+        return (environment, pool, selectedHosts, null);
+    }
+
+    private async Task TryRefreshAsync(EnvironmentConfiguration environment, SavedHostPoolConfiguration pool, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _hostPoolRefresh.RefreshAsync(environment, pool.HostPoolId, cancellationToken);
+        }
+        catch
+        {
+            // The Azure operation already succeeded. Normal live/manual refresh can reconcile display state.
+        }
     }
 
     private static SavedHostPoolConfiguration? FindPool(EnvironmentConfiguration environment, string id) =>
