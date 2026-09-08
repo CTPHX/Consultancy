@@ -34,7 +34,10 @@
 
 <div class="panel-heading-row" style="margin-bottom: 14px;">
     <div><h2>Host pools</h2><p class="muted">Session hosts are grouped by their Azure Virtual Desktop host pool.</p></div>
-    <span class="last-scan">Environment scan @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
+    <div style="text-align:right;">
+        <span class="status-pill status-good" id="liveStatus">Live · 30s</span>
+        <span class="last-scan" style="display:block; margin-top:6px;">Environment scan @Model.EnvironmentConfiguration.LastScannedAtUtc.ToLocalTime().ToString("g")</span>
+    </div>
 </div>
 
 @if (Model.HostPools.Count == 0)
@@ -45,7 +48,7 @@ else
 {
     @foreach (var pool in Model.HostPools)
     {
-        <section class="panel session-host-panel" style="margin-bottom: 16px;">
+        <section class="panel session-host-panel" style="margin-bottom: 16px;" data-host-pool-id="@pool.HostPoolId">
             <div class="panel-heading-row">
                 <div>
                     <span class="eyebrow">HOST POOL</span>
@@ -66,9 +69,9 @@ else
                     {
                         <span class="status-pill status-neutral">No hosts</span>
                     }
-                    <form method="post" asp-page-handler="RescanHostPool">
+                    <form method="post" asp-page-handler="RescanHostPool" class="host-pool-rescan-form">
                         <input type="hidden" name="hostPoolId" value="@pool.HostPoolId" />
-                        <button class="secondary-button" type="submit">Re-scan host pool</button>
+                        <button class="secondary-button host-pool-rescan-button" type="submit">Re-scan host pool</button>
                     </form>
                 </div>
             </div>
@@ -106,4 +109,63 @@ else
     }
 }
 
-<p class="mapping-note">A host-pool re-scan refreshes only that pool's registered session hosts and their VM, network and image relationships. Use Settings to re-scan the whole Azure environment when host pools or other environment resources are added or removed.</p>
+<p class="mapping-note">This page checks Azure Virtual Desktop every 30 seconds while it is open. If a host is added, removed, changes availability, drain mode or session count, AVD Manager automatically refreshes the page. The Re-scan host pool button forces an immediate targeted refresh. Use Settings to re-scan the whole Azure environment when host pools or other environment resources are added or removed.</p>
+
+<script>
+(() => {
+    const intervalMs = 30000;
+    const liveStatus = document.getElementById('liveStatus');
+    let checking = false;
+
+    async function checkHostPools() {
+        if (checking || document.hidden) return;
+        checking = true;
+        if (liveStatus) liveStatus.textContent = 'Checking Azure…';
+
+        try {
+            const panels = Array.from(document.querySelectorAll('[data-host-pool-id]'));
+            for (const panel of panels) {
+                const hostPoolId = panel.dataset.hostPoolId;
+                const url = `?handler=LiveStatus&hostPoolId=${encodeURIComponent(hostPoolId)}`;
+                const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+                if (!response.ok) continue;
+
+                const result = await response.json();
+                if (result.changed) {
+                    const form = panel.querySelector('.host-pool-rescan-form');
+                    const button = panel.querySelector('.host-pool-rescan-button');
+                    if (button) {
+                        button.disabled = true;
+                        button.textContent = 'Updating…';
+                    }
+                    if (form) {
+                        form.requestSubmit();
+                        return;
+                    }
+                }
+            }
+
+            if (liveStatus) liveStatus.textContent = 'Live · 30s';
+        } catch {
+            if (liveStatus) liveStatus.textContent = 'Live check unavailable';
+        } finally {
+            checking = false;
+        }
+    }
+
+    document.querySelectorAll('.host-pool-rescan-form').forEach(form => {
+        form.addEventListener('submit', () => {
+            const button = form.querySelector('.host-pool-rescan-button');
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Re-scanning…';
+            }
+        });
+    });
+
+    window.setInterval(checkHostPools, intervalMs);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) checkHostPools();
+    });
+})();
+</script>
