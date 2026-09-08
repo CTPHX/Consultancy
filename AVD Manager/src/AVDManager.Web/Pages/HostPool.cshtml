@@ -1,0 +1,147 @@
+@page "/HostPools/{id}"
+@model AVDManager.Web.Pages.HostPoolModel
+@{
+    ViewData["Title"] = Model.HostPool?.HostPoolName ?? "Host Pool";
+    var pool = Model.HostPool!;
+    var hosts = pool.SessionHosts;
+    var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
+    var sessions = hosts.Sum(h => h.Sessions ?? 0);
+    var networkNames = hosts.Where(h => !string.IsNullOrWhiteSpace(h.VnetName)).Select(h => h.VnetName!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    var subnetNames = hosts.Where(h => !string.IsNullOrWhiteSpace(h.SubnetName)).Select(h => h.SubnetName!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    var images = hosts.Where(h => !string.IsNullOrWhiteSpace(h.ImageDefinition)).Select(h => new { h.GalleryName, h.ImageDefinition, h.ImageVersion }).Distinct().ToList();
+}
+
+<div class="page-heading">
+    <div>
+        <a href="/SessionHosts" class="muted" style="text-decoration:none;">← Host Pools</a>
+        <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <h1 style="margin:0;">@pool.HostPoolName</h1>
+            @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+            {
+                <span class="status-pill status-good">@Model.StatusMessage</span>
+            }
+        </div>
+        <p>@Model.EnvironmentConfiguration!.SubscriptionName · @pool.Location · Azure Virtual Desktop host pool</p>
+    </div>
+    <form method="post" asp-page-handler="Rescan">
+        <input type="hidden" name="id" value="@pool.HostPoolName" />
+        <button class="secondary-button" type="submit">Re-scan host pool</button>
+    </form>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="status-message status-bad" style="margin-bottom:16px;">@Model.ErrorMessage</div>
+}
+
+<section class="metrics session-host-metrics">
+    <article class="metric"><span>Session Hosts</span><strong>@hosts.Count</strong><small>Registered</small></article>
+    <article class="metric"><span>Available</span><strong>@available</strong><small>@(hosts.Count - available) unavailable</small></article>
+    <article class="metric"><span>Active Sessions</span><strong>@sessions</strong><small>Across this host pool</small></article>
+    <article class="metric"><span>Application Groups</span><strong>@pool.ApplicationGroups.Count</strong><small>Linked by Azure</small></article>
+</section>
+
+<div class="dashboard-grid">
+    <section class="panel">
+        <h2>Application groups</h2>
+        @if (pool.ApplicationGroups.Count == 0)
+        {
+            <div class="empty-state"><p>No linked application groups discovered.</p></div>
+        }
+        else
+        {
+            @foreach (var group in pool.ApplicationGroups)
+            {
+                <p><strong>@group</strong></p>
+            }
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Scaling plan</h2>
+        @if (Model.ScalingPlans.Count > 0)
+        {
+            @foreach (var plan in Model.ScalingPlans)
+            {
+                <p><strong>@plan</strong></p>
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(Model.ScalingPlanError))
+        {
+            <p class="muted">Scaling-plan relationship could not be read from Azure.</p>
+        }
+        else
+        {
+            <div class="empty-state"><p>No scaling plan linked to this host pool.</p></div>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Networking</h2>
+        <p><span class="muted">Resource group</span><br /><strong>@(pool.ResourceGroups.Network ?? "Not configured")</strong></p>
+        <p><span class="muted">Virtual network</span><br /><strong>@(networkNames.Count > 0 ? string.Join(", ", networkNames) : "Not discovered")</strong></p>
+        <p><span class="muted">Subnet</span><br /><strong>@(subnetNames.Count > 0 ? string.Join(", ", subnetNames) : "Not discovered")</strong></p>
+    </section>
+
+    <section class="panel">
+        <h2>Image</h2>
+        <p><span class="muted">Gallery resource group</span><br /><strong>@(pool.ResourceGroups.Gallery ?? "Not configured")</strong></p>
+        @if (images.Count == 0)
+        {
+            <div class="empty-state"><p>No session-host image relationship discovered.</p></div>
+        }
+        else
+        {
+            @foreach (var image in images)
+            {
+                <p><strong>@image.ImageDefinition</strong><br /><span class="muted">@(image.ImageVersion ?? "Version unavailable") · @(image.GalleryName ?? "Gallery unavailable")</span></p>
+            }
+        }
+    </section>
+</div>
+
+<section class="panel" style="margin-top:16px;">
+    <div class="panel-heading-row">
+        <div><h2>Session hosts</h2><p class="muted">Registered hosts in this Azure Virtual Desktop host pool.</p></div>
+        <small class="last-scan">Last scanned @((pool.LastScannedAtUtc ?? Model.EnvironmentConfiguration.LastScannedAtUtc).ToLocalTime().ToString("g"))</small>
+    </div>
+
+    @if (hosts.Count == 0)
+    {
+        <div class="empty-state"><strong>No registered session hosts</strong><p>Use Re-scan host pool after a host is registered in Azure Virtual Desktop.</p></div>
+    }
+    else
+    {
+        <div class="session-host-table-wrap">
+            <table class="session-host-table">
+                <thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr></thead>
+                <tbody>
+                @foreach (var host in hosts.OrderBy(h => h.Name))
+                {
+                    var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase);
+                    <tr>
+                        <td><strong>@host.Name</strong></td>
+                        <td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td>
+                        <td><span class="status-pill @(host.AllowNewSession == false ? "status-warn" : "status-neutral")">@(host.AllowNewSession == false ? "On" : "Off")</span></td>
+                        <td><strong>@(host.Sessions ?? 0)</strong></td>
+                        <td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td>
+                        <td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td>
+                        <td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+<section class="panel" style="margin-top:16px;">
+    <h2>Operational controls</h2>
+    <p class="muted">This is the control surface for future drain mode, start/stop/restart, deployment and session-host maintenance actions. These operations will run through controlled Azure Automation workflows rather than direct browser-side Azure changes.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+        <button class="secondary-button" disabled>Drain mode</button>
+        <button class="secondary-button" disabled>Start hosts</button>
+        <button class="secondary-button" disabled>Stop hosts</button>
+        <button class="secondary-button" disabled>Deploy hosts</button>
+    </div>
+</section>
