@@ -77,7 +77,19 @@
 </section>
 
 <section class="panel" style="margin-top:16px;">
-    <div class="panel-heading-row"><div><h2>User sessions</h2><p class="muted">Live Azure Virtual Desktop sessions for this host pool. Logging off a session immediately disconnects the user and closes their session.</p></div><small class="last-scan">@Model.UserSessions.Count session(s)</small></div>
+    <div class="panel-heading-row">
+        <div><h2>User sessions</h2><p class="muted">Live Azure Virtual Desktop sessions for this host pool. Logging off a session immediately disconnects the user and closes their session.</p></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
+            <small class="last-scan">@Model.UserSessions.Count session(s)</small>
+            @if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0)
+            {
+                <form method="post" asp-page-handler="LogoffAllSessions" data-progress-label="Logging off all user sessions…" onsubmit="return window.confirm('Log off ALL @Model.UserSessions.Count user session(s) from @pool.HostPoolName? This will immediately disconnect every user in this host pool and close their sessions.');">
+                    <input type="hidden" name="id" value="@pool.HostPoolName" />
+                    <button class="secondary-button" type="submit">Log off all users</button>
+                </form>
+            }
+        </div>
+    </div>
     @if (!string.IsNullOrWhiteSpace(Model.UserSessionsError))
     {
         <div class="status-message status-bad">Could not read user sessions: @Model.UserSessionsError</div>
