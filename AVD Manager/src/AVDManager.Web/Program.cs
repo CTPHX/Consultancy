@@ -55,7 +55,7 @@ builder.Services.AddScoped<AVDManager.Web.Services.AzureDiscoveryService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureVmImageDiscoveryService>();
 builder.Services.AddScoped<AVDManager.Web.Services.HostPoolRefreshService>();
 builder.Services.AddScoped<AVDManager.Web.Services.HostPoolDetailService>();
-builder.Services.AddScoped<AVDManager.Web.Services.AzureAutomationService>();
+builder.Services.AddScoped<AVDManager.Web.Services.AvdSessionHostOperationsService>();
 builder.Services.AddSingleton<AVDManager.Web.Services.EnvironmentConfigurationStore>();
 
 var app = builder.Build();
