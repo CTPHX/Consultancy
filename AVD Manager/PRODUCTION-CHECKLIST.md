@@ -34,6 +34,7 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 - [ ] Keep the stop/deallocate safety rule enforced server-side: selected AVD session hosts must already be in drain mode before their backing VM can be stopped.
 - [ ] Review restart policy before production: restart currently requires explicit operator confirmation because it can interrupt active sessions; decide whether production should additionally require drain mode and/or zero active sessions.
 - [ ] Add explicit VM power-state display/reconciliation so operators can distinguish AVD registration status from Azure VM running/deallocated state.
+- [ ] Replace request-bound operation progress with durable operation/job tracking before production so long-running work survives browser disconnects, App Service restarts and scale-out. Current direct-operation progress is intentionally an in-page indicator while the server waits for Azure completion.
 
 ## Secrets and configuration
 - [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate Development/Test/Production configuration.
