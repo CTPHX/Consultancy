@@ -3,6 +3,9 @@
 @{
     var savedEnvironment = await EnvironmentStore.GetAsync(Context.RequestAborted);
     var environmentLabel = savedEnvironment?.SubscriptionName ?? "No environment selected";
+    var hostPoolCount = savedEnvironment?.HostPools.Count ?? 0;
+    var sessionHostCount = savedEnvironment?.HostPools.Sum(pool => pool.SessionHosts.Count) ?? 0;
+    var lastScan = savedEnvironment?.LastScannedAtUtc.ToLocalTime().ToString("g") ?? "Not scanned";
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -21,7 +24,29 @@
         </nav>
     </aside>
     <div class="workspace">
-        <header class="topbar"><span class="environment">@environmentLabel</span><div class="top-actions"><button id="themeToggle" class="icon-button" title="Switch theme">☾</button><span>AVD Manager</span></div></header>
+        <header class="topbar">
+            <span class="environment">@environmentLabel</span>
+            <div class="top-actions">
+                <div class="info-menu">
+                    <button id="infoToggle" class="icon-button" type="button" title="Environment information" aria-label="Environment information" aria-expanded="false">ⓘ</button>
+                    <aside id="infoPanel" class="info-panel" hidden>
+                        <div class="info-panel-heading"><div><span class="eyebrow">AVD MANAGER</span><h3>Environment information</h3></div><button id="infoClose" class="info-close" type="button" aria-label="Close information">×</button></div>
+                        <div class="info-section"><span>Environment</span><strong>@environmentLabel</strong><small>@(savedEnvironment is null ? "Complete onboarding to configure an Azure environment." : $"{hostPoolCount} host pool(s) · {sessionHostCount} session host(s)")</small></div>
+                        @if (savedEnvironment is not null)
+                        {
+                            <div class="info-section"><span>Subscription</span><strong>@savedEnvironment.SubscriptionName</strong><small class="info-mono">@savedEnvironment.SubscriptionId</small></div>
+                            <div class="info-section"><span>Azure access — development</span><strong>Reader + temporary operational Contributor</strong><small>Contributor is a development shortcut only. Production access will be replaced by least-privilege custom role(s) built from the access requirements ledger.</small></div>
+                            <div class="info-section"><span>Operational model</span><strong>Direct ARM + Azure Automation</strong><small>Simple resource operations such as AVD drain mode use ARM directly. Complex workflows continue through Azure Automation and its managed identity.</small></div>
+                            <div class="info-section"><span>Last environment scan</span><strong>@lastScan</strong><small>Use the relevant re-scan controls to reconcile current Azure state.</small></div>
+                        }
+                        <div class="info-section"><span>Application</span><strong>AVD Manager</strong><small>By Phoenix Software · Development build</small></div>
+                        <div class="info-note">This panel intentionally excludes secrets, tokens and sensitive credential material.</div>
+                    </aside>
+                </div>
+                <button id="themeToggle" class="icon-button" type="button" title="Switch theme">☾</button>
+                <span>AVD Manager</span>
+            </div>
+        </header>
         <main>@RenderBody()</main>
     </div>
 </div>
