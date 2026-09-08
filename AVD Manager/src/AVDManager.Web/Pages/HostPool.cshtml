@@ -2,6 +2,7 @@
 @model AVDManager.Web.Pages.HostPoolModel
 @{
     ViewData["Title"] = Model.HostPool?.HostPoolName ?? "Host Pool";
+    ViewData["TopStatusMessage"] = Model.StatusMessage;
     var pool = Model.HostPool!;
     var hosts = pool.SessionHosts;
     var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
@@ -14,10 +15,6 @@
         <a href="/SessionHosts" class="muted" style="text-decoration:none;">← Host Pools</a>
         <div style="display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap;">
             <h1 style="margin:0;">@pool.HostPoolName</h1>
-            @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
-            {
-                <span class="status-pill status-good">@Model.StatusMessage</span>
-            }
         </div>
         <p>@Model.EnvironmentConfiguration!.SubscriptionName · @pool.Location · Azure Virtual Desktop host pool</p>
     </div>
