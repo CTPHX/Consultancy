@@ -8,23 +8,21 @@ namespace AVDManager.Web.Pages;
 [Authorize]
 public sealed class HostPoolModel : PageModel
 {
-    private const string DrainModeRunbookName = "Set-AVDSessionHostDrainMode";
-
     private readonly EnvironmentConfigurationStore _environmentStore;
     private readonly HostPoolRefreshService _hostPoolRefresh;
     private readonly HostPoolDetailService _hostPoolDetail;
-    private readonly AzureAutomationService _azureAutomation;
+    private readonly AvdSessionHostOperationsService _sessionHostOperations;
 
     public HostPoolModel(
         EnvironmentConfigurationStore environmentStore,
         HostPoolRefreshService hostPoolRefresh,
         HostPoolDetailService hostPoolDetail,
-        AzureAutomationService azureAutomation)
+        AvdSessionHostOperationsService sessionHostOperations)
     {
         _environmentStore = environmentStore;
         _hostPoolRefresh = hostPoolRefresh;
         _hostPoolDetail = hostPoolDetail;
-        _azureAutomation = azureAutomation;
+        _sessionHostOperations = sessionHostOperations;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
@@ -89,7 +87,7 @@ public sealed class HostPoolModel : PageModel
 
     public async Task<IActionResult> OnPostSetDrainModeAsync(
         string id,
-        string sessionHostName,
+        List<string>? selectedSessionHosts,
         bool allowNewSession,
         CancellationToken cancellationToken)
     {
@@ -101,18 +99,24 @@ public sealed class HostPoolModel : PageModel
         if (pool is null)
             return NotFound();
 
-        var sessionHost = pool.SessionHosts.FirstOrDefault(host =>
-            host.Name.Equals(sessionHostName, StringComparison.OrdinalIgnoreCase));
+        var requestedNames = (selectedSessionHosts ?? [])
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        if (sessionHost is null)
+        if (requestedNames.Count == 0)
         {
-            ErrorMessage = "The selected session host is not part of this saved host pool. Re-scan the host pool and try again.";
+            ErrorMessage = "Select at least one session host first.";
             return RedirectToPage(new { id = pool.HostPoolName });
         }
 
-        if (string.IsNullOrWhiteSpace(pool.ResourceGroups.Automation))
+        var selectedHosts = pool.SessionHosts
+            .Where(host => requestedNames.Contains(host.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (selectedHosts.Count != requestedNames.Count)
         {
-            ErrorMessage = "This host pool does not have an Automation resource group configured.";
+            ErrorMessage = "One or more selected session hosts are no longer part of this host pool. Re-scan and try again.";
             return RedirectToPage(new { id = pool.HostPoolName });
         }
 
@@ -123,29 +127,45 @@ public sealed class HostPoolModel : PageModel
             return RedirectToPage(new { id = pool.HostPoolName });
         }
 
-        try
-        {
-            var job = await _azureAutomation.StartRunbookAsync(
-                environment.SubscriptionId,
-                pool.ResourceGroups.Automation,
-                DrainModeRunbookName,
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["SubscriptionId"] = environment.SubscriptionId,
-                    ["ResourceGroupName"] = hostPoolResourceGroup,
-                    ["HostPoolName"] = pool.HostPoolName,
-                    ["SessionHostName"] = sessionHost.Name,
-                    ["AllowNewSession"] = allowNewSession ? "true" : "false"
-                },
-                cancellationToken);
+        var succeeded = new List<string>();
+        var failures = new List<string>();
 
-            var requestedState = allowNewSession ? "accept new sessions" : "enter drain mode";
-            StatusMessage = $"Requested {sessionHost.Name} to {requestedState}. Automation job {job.JobName} submitted.";
-        }
-        catch (Exception ex)
+        foreach (var sessionHost in selectedHosts)
         {
-            ErrorMessage = $"Could not submit drain mode change: {ex.Message}";
+            try
+            {
+                await _sessionHostOperations.SetAllowNewSessionAsync(
+                    environment.SubscriptionId,
+                    hostPoolResourceGroup,
+                    pool.HostPoolName,
+                    sessionHost.Name,
+                    allowNewSession,
+                    cancellationToken);
+                succeeded.Add(sessionHost.Name);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{sessionHost.Name}: {ex.Message}");
+            }
         }
+
+        if (succeeded.Count > 0)
+        {
+            try
+            {
+                await _hostPoolRefresh.RefreshAsync(environment, pool.HostPoolId, cancellationToken);
+            }
+            catch
+            {
+                // The Azure update already succeeded. The normal live refresh can reconcile display state.
+            }
+
+            var state = allowNewSession ? "accept new sessions" : "enter drain mode";
+            StatusMessage = $"Updated {succeeded.Count} session host(s) to {state}.";
+        }
+
+        if (failures.Count > 0)
+            ErrorMessage = $"{failures.Count} session host update(s) failed. {string.Join(" | ", failures)}";
 
         return RedirectToPage(new { id = pool.HostPoolName });
     }
