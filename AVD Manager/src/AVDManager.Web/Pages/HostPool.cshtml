@@ -17,7 +17,7 @@
         </div>
         <p>@Model.EnvironmentConfiguration!.SubscriptionName · @pool.Location · Azure Virtual Desktop host pool</p>
     </div>
-    <form method="post" asp-page-handler="Rescan">
+    <form method="post" asp-page-handler="Rescan" data-progress-label="Re-scanning host pool…">
         <input type="hidden" name="id" value="@pool.HostPoolName" />
         <button class="secondary-button" type="submit">Re-scan host pool</button>
     </form>
@@ -79,11 +79,11 @@
             <input type="hidden" name="allowNewSession" id="allowNewSession" value="false" />
 
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px;">
-                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="false" disabled>Drain selected</button>
-                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="true" disabled>Allow sessions</button>
-                <button class="secondary-button" type="submit" formaction="?handler=StartHosts" data-host-action="start" disabled>Start selected</button>
-                <button class="secondary-button" type="submit" formaction="?handler=RestartHosts" data-host-action="restart" disabled>Restart selected</button>
-                <button class="secondary-button" type="submit" formaction="?handler=StopHosts" data-host-action="stop" disabled>Stop selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="false" data-progress-action="drain" disabled>Drain selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=SetDrainMode" data-drain-action="true" data-progress-action="allow" disabled>Allow sessions</button>
+                <button class="secondary-button" type="submit" formaction="?handler=StartHosts" data-host-action="start" data-progress-action="start" disabled>Start selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=RestartHosts" data-host-action="restart" data-progress-action="restart" disabled>Restart selected</button>
+                <button class="secondary-button" type="submit" formaction="?handler=StopHosts" data-host-action="stop" data-progress-action="stop" disabled>Stop selected</button>
                 <span class="muted" id="selectionCount">0 selected</span>
             </div>
 
@@ -120,7 +120,7 @@
 
 <section class="panel" style="margin-top:16px;">
     <h2>Operational controls</h2>
-    <p class="muted">Drain mode and VM start/restart/stop now use Azure Resource Manager directly. Stop deallocates the backing Azure VM and is allowed only when the selected session host is already in drain mode. Restart reboots the backing Azure VM and can interrupt active user sessions, so AVD Manager always asks for confirmation. Deployment remains a separate Azure Automation workflow.</p>
+    <p class="muted">Drain mode and VM start/restart/stop now use Azure Resource Manager directly. Stop deallocates the backing Azure VM and is allowed only when the selected session host is already in drain mode. Restart reboots the backing Azure VM and can interrupt active user sessions, so AVD Manager always asks for confirmation. The top bar shows operation progress until Azure reports completion. Deployment remains a separate Azure Automation workflow.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
         <button class="secondary-button" disabled>Deploy hosts</button>
     </div>
@@ -136,6 +136,10 @@
     const count = document.getElementById('selectionCount');
     const actionValue = document.getElementById('allowNewSession');
     const buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]'));
+    const progress = document.getElementById('operationProgress');
+    const progressText = document.getElementById('operationProgressText');
+    const progressCount = document.getElementById('operationProgressCount');
+    let confirmedButton = null;
 
     function updateSelection() {
         const selected = selectors.filter(item => item.checked).length;
@@ -143,6 +147,26 @@
         buttons.forEach(button => button.disabled = selected === 0);
         selectAll.checked = selected > 0 && selected === selectors.length;
         selectAll.indeterminate = selected > 0 && selected < selectors.length;
+    }
+
+    function showProgress(action, selected) {
+        if (!progress || !progressText || !progressCount) return;
+        const labels = {
+            drain: 'Applying drain mode…',
+            allow: 'Allowing new sessions…',
+            start: 'Starting session host VM(s)…',
+            restart: 'Restarting session host VM(s)…',
+            stop: 'Stopping and deallocating VM(s)…'
+        };
+        progressText.textContent = labels[action] || 'Working…';
+        progressCount.textContent = `0 / ${selected}`;
+        progress.hidden = false;
+        progress.classList.remove('is-complete');
+        progress.classList.add('is-indeterminate');
+        document.querySelector('.top-status-message')?.remove();
+        buttons.forEach(button => button.disabled = true);
+        selectors.forEach(selector => selector.disabled = true);
+        selectAll.disabled = true;
     }
 
     selectors.forEach(selector => selector.addEventListener('change', updateSelection));
@@ -160,6 +184,7 @@
             return;
         }
         actionValue.value = allow ? 'true' : 'false';
+        confirmedButton = button;
     }));
 
     form.querySelectorAll('[data-host-action]').forEach(button => button.addEventListener('click', event => {
@@ -170,9 +195,19 @@
             : action === 'restart'
                 ? `Restart the backing Azure VM for ${selected} selected session host(s)? This can disconnect or interrupt active user sessions.`
                 : `Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`;
-        if (!window.confirm(prompt))
+        if (!window.confirm(prompt)) {
             event.preventDefault();
+            return;
+        }
+        confirmedButton = button;
     }));
+
+    form.addEventListener('submit', () => {
+        const selected = selectors.filter(item => item.checked).length;
+        const action = confirmedButton?.dataset.progressAction;
+        if (action && selected > 0)
+            showProgress(action, selected);
+    });
 
     updateSelection();
 })();
