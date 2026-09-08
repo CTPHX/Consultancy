@@ -77,7 +77,7 @@ public sealed class HostPoolModel : PageModel
         return RedirectToPage(new { id = pool.HostPoolName });
     }
 
-    public async Task<IActionResult> OnPostLogoffAllSessionsAsync(string id, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostLogoffSelectedSessionsAsync(string id, List<string>? selectedUserSessionIds, CancellationToken cancellationToken)
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
         if (environment is null) return RedirectToPage("/Onboarding");
@@ -85,6 +85,16 @@ public sealed class HostPoolModel : PageModel
         if (pool is null) return NotFound();
         var hostPoolResourceGroup = GetResourceGroupFromArmId(pool.HostPoolId);
         if (string.IsNullOrWhiteSpace(hostPoolResourceGroup)) { ErrorMessage = "AVD Manager could not resolve the host pool resource group."; return RedirectToPage(new { id = pool.HostPoolName }); }
+
+        var requestedIds = (selectedUserSessionIds ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (requestedIds.Count == 0)
+        {
+            ErrorMessage = "Select at least one user session first.";
+            return RedirectToPage(new { id = pool.HostPoolName });
+        }
 
         IReadOnlyList<AvdUserSession> currentSessions;
         try
@@ -97,15 +107,18 @@ public sealed class HostPoolModel : PageModel
             return RedirectToPage(new { id = pool.HostPoolName });
         }
 
-        if (currentSessions.Count == 0)
+        var selectedSessions = currentSessions
+            .Where(session => requestedIds.Contains(session.ResourceId, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        if (selectedSessions.Count != requestedIds.Count)
         {
-            StatusMessage = "There are no user sessions to log off.";
+            ErrorMessage = "One or more selected user sessions no longer exist in this host pool. Refresh and try again.";
             return RedirectToPage(new { id = pool.HostPoolName });
         }
 
         var succeeded = new List<AvdUserSession>();
         var failures = new List<string>();
-        foreach (var session in currentSessions)
+        foreach (var session in selectedSessions)
         {
             try
             {
@@ -120,11 +133,11 @@ public sealed class HostPoolModel : PageModel
 
         if (succeeded.Count > 0)
         {
-            StatusMessage = $"Logged off {succeeded.Count} user session(s) from {pool.HostPoolName}.";
+            StatusMessage = $"Logged off {succeeded.Count} selected user session(s).";
             await TryRefreshAsync(environment, pool, cancellationToken);
         }
         if (failures.Count > 0)
-            ErrorMessage = $"{failures.Count} user session logoff operation(s) failed. {string.Join(" | ", failures)}";
+            ErrorMessage = $"{failures.Count} selected user session logoff operation(s) failed. {string.Join(" | ", failures)}";
 
         return RedirectToPage(new { id = pool.HostPoolName });
     }
