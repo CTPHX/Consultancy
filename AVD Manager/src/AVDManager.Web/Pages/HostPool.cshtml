@@ -7,6 +7,7 @@
     var available = hosts.Count(h => string.Equals(h.Status, "Available", StringComparison.OrdinalIgnoreCase));
     var sessions = hosts.Sum(h => h.Sessions ?? 0);
     var scalingPlan = Model.ScalingPlans.FirstOrDefault();
+    var sessionHostNames = Model.UserSessions.Select(s => s.SessionHostName).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
 }
 
 <div class="page-heading">
@@ -80,7 +81,18 @@
     <div class="panel-heading-row">
         <div><h2>User sessions</h2><p class="muted">Live Azure Virtual Desktop sessions for this host pool. Logging off a session immediately disconnects the user and closes their session.</p></div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
-            <small class="last-scan">@Model.UserSessions.Count session(s)</small>
+            @if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0)
+            {
+                <label for="sessionHostFilter" class="muted" style="font-size:.8rem;">Session host</label>
+                <select id="sessionHostFilter" class="secondary-button" style="min-width:240px;padding-right:34px;">
+                    <option value="">All session hosts</option>
+                    @foreach (var hostName in sessionHostNames)
+                    {
+                        <option value="@hostName">@hostName</option>
+                    }
+                </select>
+            }
+            <small class="last-scan" id="visibleSessionCount">@Model.UserSessions.Count session(s)</small>
             @if (string.IsNullOrWhiteSpace(Model.UserSessionsError) && Model.UserSessions.Count > 0)
             {
                 <form method="post" asp-page-handler="LogoffAllSessions" data-progress-label="Logging off all user sessions…" onsubmit="return window.confirm('Log off ALL @Model.UserSessions.Count user session(s) from @pool.HostPoolName? This will immediately disconnect every user in this host pool and close their sessions.');">
@@ -100,13 +112,14 @@
     }
     else
     {
-        <div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>User</th><th>Session host</th><th>State</th><th>Session ID</th><th>Connected</th><th style="text-align:right;">Action</th></tr></thead><tbody>
+        <div class="session-host-table-wrap"><table class="session-host-table"><thead><tr><th>User</th><th>Session host</th><th>State</th><th>Session ID</th><th>Connected</th><th style="text-align:right;">Action</th></tr></thead><tbody id="userSessionsBody">
         @foreach (var session in Model.UserSessions)
         {
             var isActive = string.Equals(session.SessionState, "Active", StringComparison.OrdinalIgnoreCase);
-            <tr><td><strong>@session.UserPrincipalName</strong>@if (!string.IsNullOrWhiteSpace(session.ActiveDirectoryUserName) && !string.Equals(session.ActiveDirectoryUserName, session.UserPrincipalName, StringComparison.OrdinalIgnoreCase)) { <small>@session.ActiveDirectoryUserName</small> }</td><td><strong>@session.SessionHostName</strong></td><td><span class="status-pill @(isActive ? "status-good" : "status-neutral")">@session.SessionState</span></td><td><strong>@session.SessionId</strong></td><td>@(session.CreateTimeUtc?.ToLocalTime().ToString("g") ?? "—")</td><td style="text-align:right;"><form method="post" asp-page-handler="LogoffSession" data-progress-label="Logging off user session…" onsubmit="return window.confirm('Log off @session.UserPrincipalName from @session.SessionHostName? This will disconnect the user and close their session.');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="userSessionResourceId" value="@session.ResourceId" /><button class="secondary-button" type="submit">Log off</button></form></td></tr>
+            <tr class="user-session-row" data-session-host="@session.SessionHostName"><td><strong>@session.UserPrincipalName</strong>@if (!string.IsNullOrWhiteSpace(session.ActiveDirectoryUserName) && !string.Equals(session.ActiveDirectoryUserName, session.UserPrincipalName, StringComparison.OrdinalIgnoreCase)) { <small>@session.ActiveDirectoryUserName</small> }</td><td><strong>@session.SessionHostName</strong></td><td><span class="status-pill @(isActive ? "status-good" : "status-neutral")">@session.SessionState</span></td><td><strong>@session.SessionId</strong></td><td>@(session.CreateTimeUtc?.ToLocalTime().ToString("g") ?? "—")</td><td style="text-align:right;"><form method="post" asp-page-handler="LogoffSession" data-progress-label="Logging off user session…" onsubmit="return window.confirm('Log off @session.UserPrincipalName from @session.SessionHostName? This will disconnect the user and close their session.');"><input type="hidden" name="id" value="@pool.HostPoolName" /><input type="hidden" name="userSessionResourceId" value="@session.ResourceId" /><button class="secondary-button" type="submit">Log off</button></form></td></tr>
         }
         </tbody></table></div>
+        <div class="empty-state" id="userSessionsFilteredEmpty" hidden><strong>No sessions on this host</strong><p>The selected session host currently has no user sessions.</p></div>
     }
 </section>
 
@@ -114,16 +127,36 @@
 
 <script>
 (() => {
-    const form = document.getElementById('hostOperationsForm'); if (!form) return;
-    const selectors = Array.from(form.querySelectorAll('.host-selector')); const rows = Array.from(form.querySelectorAll('.selectable-host-row')); const selectAll = document.getElementById('selectAllHosts'); const count = document.getElementById('selectionCount'); const actionValue = document.getElementById('allowNewSession'); const buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]')); const progress = document.getElementById('operationProgress'); const progressText = document.getElementById('operationProgressText'); const progressCount = document.getElementById('operationProgressCount'); let confirmedButton = null;
-    function updateSelection() { const selected = selectors.filter(item => item.checked).length; count.textContent = `${selected} selected`; buttons.forEach(button => button.disabled = selected === 0); rows.forEach(row => { const selector = row.querySelector('.host-selector'); const isSelected = selector?.checked === true; row.classList.toggle('is-selected', isSelected); row.setAttribute('aria-checked', isSelected ? 'true' : 'false'); }); if (selectAll) selectAll.textContent = selected === selectors.length ? 'Clear selection' : 'Select all'; }
-    function toggleRow(row) { const selector = row.querySelector('.host-selector'); if (!selector || selector.disabled) return; selector.checked = !selector.checked; updateSelection(); }
-    rows.forEach(row => { row.addEventListener('click', event => { if (event.target.closest('button, a, input, select, textarea')) return; toggleRow(row); }); row.addEventListener('keydown', event => { if (event.key !== 'Enter' && event.key !== ' ') return; event.preventDefault(); toggleRow(row); }); });
-    function preserveSelectedHosts() { form.querySelectorAll('input[data-progress-selection]').forEach(input => input.remove()); selectors.filter(selector => selector.checked).forEach(selector => { const hidden = document.createElement('input'); hidden.type = 'hidden'; hidden.name = 'selectedSessionHosts'; hidden.value = selector.value; hidden.dataset.progressSelection = 'true'; form.appendChild(hidden); }); }
-    function showProgress(action, selected) { if (!progress || !progressText || !progressCount) return; const labels = { drain: 'Applying drain mode…', allow: 'Allowing new sessions…', start: 'Starting session host VM(s)…', restart: 'Restarting session host VM(s)…', stop: 'Stopping and deallocating VM(s)…' }; progressText.textContent = labels[action] || 'Working…'; progressCount.textContent = `${selected} host(s)`; progress.hidden = false; progress.classList.remove('is-complete'); progress.classList.add('is-indeterminate'); document.querySelector('.top-status-message')?.remove(); buttons.forEach(button => button.disabled = true); selectors.forEach(selector => selector.disabled = true); if (selectAll) selectAll.disabled = true; }
-    selectors.forEach(selector => selector.addEventListener('change', updateSelection)); selectAll?.addEventListener('click', () => { const shouldSelectAll = selectors.some(selector => !selector.checked); selectors.forEach(selector => selector.checked = shouldSelectAll); updateSelection(); });
-    form.querySelectorAll('[data-drain-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const allow = button.dataset.drainAction === 'true'; const action = allow ? 'allow new sessions on' : 'place into drain mode'; if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${selected} selected session host(s)? Existing sessions will not be disconnected.`)) { event.preventDefault(); return; } actionValue.value = allow ? 'true' : 'false'; confirmedButton = button; }));
-    form.querySelectorAll('[data-host-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const action = button.dataset.hostAction; const prompt = action === 'start' ? `Start the backing Azure VM for ${selected} selected session host(s)?` : action === 'restart' ? `Restart the backing Azure VM for ${selected} selected session host(s)? This can disconnect or interrupt active user sessions.` : `Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`; if (!window.confirm(prompt)) { event.preventDefault(); return; } confirmedButton = button; }));
-    form.addEventListener('submit', () => { const selected = selectors.filter(item => item.checked).length; const action = confirmedButton?.dataset.progressAction; if (action && selected > 0) { preserveSelectedHosts(); showProgress(action, selected); } }); updateSelection();
+    const form = document.getElementById('hostOperationsForm');
+    if (form) {
+        const selectors = Array.from(form.querySelectorAll('.host-selector')); const rows = Array.from(form.querySelectorAll('.selectable-host-row')); const selectAll = document.getElementById('selectAllHosts'); const count = document.getElementById('selectionCount'); const actionValue = document.getElementById('allowNewSession'); const buttons = Array.from(form.querySelectorAll('[data-drain-action], [data-host-action]')); const progress = document.getElementById('operationProgress'); const progressText = document.getElementById('operationProgressText'); const progressCount = document.getElementById('operationProgressCount'); let confirmedButton = null;
+        function updateSelection() { const selected = selectors.filter(item => item.checked).length; count.textContent = `${selected} selected`; buttons.forEach(button => button.disabled = selected === 0); rows.forEach(row => { const selector = row.querySelector('.host-selector'); const isSelected = selector?.checked === true; row.classList.toggle('is-selected', isSelected); row.setAttribute('aria-checked', isSelected ? 'true' : 'false'); }); if (selectAll) selectAll.textContent = selected === selectors.length ? 'Clear selection' : 'Select all'; }
+        function toggleRow(row) { const selector = row.querySelector('.host-selector'); if (!selector || selector.disabled) return; selector.checked = !selector.checked; updateSelection(); }
+        rows.forEach(row => { row.addEventListener('click', event => { if (event.target.closest('button, a, input, select, textarea')) return; toggleRow(row); }); row.addEventListener('keydown', event => { if (event.key !== 'Enter' && event.key !== ' ') return; event.preventDefault(); toggleRow(row); }); });
+        function preserveSelectedHosts() { form.querySelectorAll('input[data-progress-selection]').forEach(input => input.remove()); selectors.filter(selector => selector.checked).forEach(selector => { const hidden = document.createElement('input'); hidden.type = 'hidden'; hidden.name = 'selectedSessionHosts'; hidden.value = selector.value; hidden.dataset.progressSelection = 'true'; form.appendChild(hidden); }); }
+        function showProgress(action, selected) { if (!progress || !progressText || !progressCount) return; const labels = { drain: 'Applying drain mode…', allow: 'Allowing new sessions…', start: 'Starting session host VM(s)…', restart: 'Restarting session host VM(s)…', stop: 'Stopping and deallocating VM(s)…' }; progressText.textContent = labels[action] || 'Working…'; progressCount.textContent = `${selected} host(s)`; progress.hidden = false; progress.classList.remove('is-complete'); progress.classList.add('is-indeterminate'); document.querySelector('.top-status-message')?.remove(); buttons.forEach(button => button.disabled = true); selectors.forEach(selector => selector.disabled = true); if (selectAll) selectAll.disabled = true; }
+        selectors.forEach(selector => selector.addEventListener('change', updateSelection)); selectAll?.addEventListener('click', () => { const shouldSelectAll = selectors.some(selector => !selector.checked); selectors.forEach(selector => selector.checked = shouldSelectAll); updateSelection(); });
+        form.querySelectorAll('[data-drain-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const allow = button.dataset.drainAction === 'true'; const action = allow ? 'allow new sessions on' : 'place into drain mode'; if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${selected} selected session host(s)? Existing sessions will not be disconnected.`)) { event.preventDefault(); return; } actionValue.value = allow ? 'true' : 'false'; confirmedButton = button; }));
+        form.querySelectorAll('[data-host-action]').forEach(button => button.addEventListener('click', event => { const selected = selectors.filter(item => item.checked).length; const action = button.dataset.hostAction; const prompt = action === 'start' ? `Start the backing Azure VM for ${selected} selected session host(s)?` : action === 'restart' ? `Restart the backing Azure VM for ${selected} selected session host(s)? This can disconnect or interrupt active user sessions.` : `Stop and deallocate the backing Azure VM for ${selected} selected session host(s)? Selected hosts must already be in drain mode.`; if (!window.confirm(prompt)) { event.preventDefault(); return; } confirmedButton = button; }));
+        form.addEventListener('submit', () => { const selected = selectors.filter(item => item.checked).length; const action = confirmedButton?.dataset.progressAction; if (action && selected > 0) { preserveSelectedHosts(); showProgress(action, selected); } }); updateSelection();
+    }
+
+    const sessionHostFilter = document.getElementById('sessionHostFilter');
+    if (sessionHostFilter) {
+        const sessionRows = Array.from(document.querySelectorAll('.user-session-row'));
+        const visibleSessionCount = document.getElementById('visibleSessionCount');
+        const filteredEmpty = document.getElementById('userSessionsFilteredEmpty');
+        sessionHostFilter.addEventListener('change', () => {
+            const selectedHost = sessionHostFilter.value.toLowerCase();
+            let visible = 0;
+            sessionRows.forEach(row => {
+                const matches = !selectedHost || (row.dataset.sessionHost || '').toLowerCase() === selectedHost;
+                row.hidden = !matches;
+                if (matches) visible++;
+            });
+            if (visibleSessionCount) visibleSessionCount.textContent = selectedHost ? `${visible} of ${sessionRows.length} session(s)` : `${sessionRows.length} session(s)`;
+            if (filteredEmpty) filteredEmpty.hidden = visible > 0;
+        });
+    }
 })();
 </script>
