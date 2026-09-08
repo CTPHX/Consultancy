@@ -37,39 +37,34 @@
     <article class="metric"><span>Available</span><strong>@available</strong><small>@(hosts.Count - available) unavailable</small></article>
     <article class="metric"><span>Active Sessions</span><strong>@sessions</strong><small>Across this host pool</small></article>
     <article class="metric"><span>Application Groups</span><strong>@pool.ApplicationGroups.Count</strong><small>Linked by Azure</small></article>
-</section>
-
-<div style="display:flex; align-items:stretch; gap:12px; margin:14px 0 16px; flex-wrap:wrap;">
-    <section class="panel" style="padding:14px 18px; min-width:260px; width:auto;">
-        <span class="muted" style="display:block; margin-bottom:5px;">Scaling plan</span>
+    <article class="metric">
+        <span>Scaling Plan</span>
         @if (scalingPlan is not null)
         {
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                <strong>@scalingPlan.Name</strong>
-                @if (scalingPlan.Enabled == true)
-                {
-                    <span class="status-pill status-good">Enabled</span>
-                }
-                else if (scalingPlan.Enabled == false)
-                {
-                    <span class="status-pill status-neutral">Disabled</span>
-                }
-                else
-                {
-                    <span class="status-pill status-neutral">State unavailable</span>
-                }
-            </div>
+            <strong style="font-size:1rem; line-height:1.25;">@scalingPlan.Name</strong>
+            @if (scalingPlan.Enabled == true)
+            {
+                <small><span class="status-pill status-good">Enabled</span></small>
+            }
+            else if (scalingPlan.Enabled == false)
+            {
+                <small><span class="status-pill status-neutral">Disabled</span></small>
+            }
+            else
+            {
+                <small><span class="status-pill status-neutral">State unavailable</span></small>
+            }
         }
         else if (!string.IsNullOrWhiteSpace(Model.ScalingPlanError))
         {
-            <strong>Unable to read</strong>
+            <strong style="font-size:1rem;">Unable to read</strong><small>Azure state unavailable</small>
         }
         else
         {
-            <strong>Not assigned</strong>
+            <strong style="font-size:1rem;">Not assigned</strong><small>No scaling plan</small>
         }
-    </section>
-</div>
+    </article>
+</section>
 
 <section class="panel" style="margin-top:16px;">
     <div class="panel-heading-row">
@@ -85,19 +80,28 @@
     {
         <div class="session-host-table-wrap">
             <table class="session-host-table">
-                <thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th></tr></thead>
+                <thead><tr><th>Session host</th><th>Status</th><th>Drain mode</th><th>Sessions</th><th>VM</th><th>Network</th><th>Image</th><th>Action</th></tr></thead>
                 <tbody>
                 @foreach (var host in hosts.OrderBy(h => h.Name))
                 {
                     var isAvailable = string.Equals(host.Status, "Available", StringComparison.OrdinalIgnoreCase);
+                    var isDraining = host.AllowNewSession == false;
                     <tr>
                         <td><strong>@host.Name</strong></td>
                         <td><span class="status-pill @(isAvailable ? "status-good" : "status-bad")">@(host.Status ?? "Unknown")</span></td>
-                        <td><span class="status-pill @(host.AllowNewSession == false ? "status-warn" : "status-neutral")">@(host.AllowNewSession == false ? "On" : "Off")</span></td>
+                        <td><span class="status-pill @(isDraining ? "status-warn" : "status-neutral")">@(isDraining ? "On" : "Off")</span></td>
                         <td><strong>@(host.Sessions ?? 0)</strong></td>
                         <td><strong>@(host.VmName ?? "—")</strong><small>@(host.VmResourceGroup ?? "VM relationship unavailable")</small></td>
                         <td><strong>@(host.VnetName ?? "—")</strong><small>@(host.SubnetName ?? host.NicName ?? "Network relationship unavailable")</small></td>
                         <td><strong>@(host.ImageDefinition ?? "—")</strong><small>@(host.ImageVersion is null ? host.GalleryName ?? "Image relationship unavailable" : $"{host.ImageVersion} · {host.GalleryName}")</small></td>
+                        <td>
+                            <form method="post" asp-page-handler="SetDrainMode" onsubmit="return confirm('@(isDraining ? "Allow this session host to accept new sessions?" : "Place this session host into drain mode? Existing sessions will remain connected.")');">
+                                <input type="hidden" name="id" value="@pool.HostPoolName" />
+                                <input type="hidden" name="sessionHostName" value="@host.Name" />
+                                <input type="hidden" name="allowNewSession" value="@(isDraining ? "true" : "false")" />
+                                <button class="secondary-button" type="submit">@(isDraining ? "Allow sessions" : "Drain host")</button>
+                            </form>
+                        </td>
                     </tr>
                 }
                 </tbody>
@@ -108,9 +112,8 @@
 
 <section class="panel" style="margin-top:16px;">
     <h2>Operational controls</h2>
-    <p class="muted">This is the control surface for future drain mode, start/stop/restart, deployment and session-host maintenance actions. These operations will run through controlled Azure Automation workflows rather than direct browser-side Azure changes.</p>
+    <p class="muted">Drain mode is now submitted through Azure Automation. Start, stop, restart and deployment controls will use the same controlled job pattern rather than direct browser-side Azure changes.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
-        <button class="secondary-button" disabled>Drain mode</button>
         <button class="secondary-button" disabled>Start hosts</button>
         <button class="secondary-button" disabled>Stop hosts</button>
         <button class="secondary-button" disabled>Deploy hosts</button>
