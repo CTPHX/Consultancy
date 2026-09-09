@@ -1,0 +1,155 @@
+@page "/DeployHosts"
+@model AVDManager.Web.Pages.DeployHostsModel
+@using System.Text.Json
+@{
+    ViewData["Title"] = "Deploy Hosts";
+    var firstPool = Model.HostPools.FirstOrDefault();
+    var poolData = Model.HostPools.ToDictionary(pool => pool.HostPoolId, pool => new
+    {
+        pool.HostPoolName,
+        pool.Location,
+        pool.ExistingHostCount,
+        pool.SuggestedVmPrefix,
+        pool.AvdResourceGroup,
+        pool.SessionHostResourceGroup,
+        pool.NetworkResourceGroup,
+        pool.GalleryResourceGroup,
+        pool.AutomationResourceGroup,
+        pool.VnetName,
+        pool.SubnetName,
+        pool.GalleryName,
+        pool.ImageDefinition,
+        pool.ImageVersion
+    });
+}
+
+<div class="page-heading">
+    <div>
+        <span class="eyebrow">SESSION HOST DEPLOYMENT</span>
+        <h1>Deploy Hosts</h1>
+        <p>Prepare a session host deployment using the environment already discovered by AVD Manager.</p>
+    </div>
+</div>
+
+@if (Model.HostPools.Count == 0)
+{
+    <section class="panel">
+        <div class="empty-state"><strong>No host pools are configured</strong><p>Complete environment discovery before preparing a session host deployment.</p></div>
+    </section>
+}
+else
+{
+    <div class="deploy-grid">
+        <section class="panel deploy-form-panel">
+            <div class="panel-heading-row">
+                <div><h2>Deployment request</h2><p class="muted">Choose the target and deployment parameters. Nothing is submitted to Azure yet.</p></div>
+                <span class="status-pill status-neutral">Review only</span>
+            </div>
+
+            <div class="deploy-fields">
+                <label class="deploy-field">
+                    <span>Host pool</span>
+                    <select id="deployHostPool" class="deploy-input">
+                        @foreach (var pool in Model.HostPools)
+                        {
+                            <option value="@pool.HostPoolId">@pool.HostPoolName</option>
+                        }
+                    </select>
+                    <small>Azure Virtual Desktop host pool to receive the new session hosts.</small>
+                </label>
+
+                <label class="deploy-field">
+                    <span>VM name prefix</span>
+                    <input id="vmNamePrefix" class="deploy-input" type="text" maxlength="15" value="@firstPool?.SuggestedVmPrefix" autocomplete="off" />
+                    <small>AVD Manager will pass this prefix to the existing deployment runbook.</small>
+                </label>
+
+                <label class="deploy-field">
+                    <span>Number of hosts</span>
+                    <input id="sessionHostCount" class="deploy-input" type="number" min="1" max="20" value="1" />
+                    <small>Number of new session hosts requested for this deployment.</small>
+                </label>
+
+                <label class="deploy-toggle">
+                    <input id="overwriteExisting" type="checkbox" />
+                    <span><strong>Allow overwrite of existing hosts</strong><small>Leave this off for normal deployments. Enabling it permits the runbook's existing overwrite workflow.</small></span>
+                </label>
+            </div>
+
+            <div class="deploy-warning" id="overwriteWarning" hidden>
+                <strong>Overwrite enabled</strong>
+                <span>The deployment may drain and remove existing matching session hosts before recreating them. This will require an additional destructive-action confirmation when Automation submission is enabled.</span>
+            </div>
+
+            <div class="deploy-actions">
+                <button class="secondary-button" id="reviewDeployment" type="button">Review deployment</button>
+                <span class="muted">Azure Automation submission is the next implementation step.</span>
+            </div>
+        </section>
+
+        <section class="panel deploy-summary-panel">
+            <div class="panel-heading-row"><div><h2>Discovered environment</h2><p class="muted">These values come from the saved Azure relationships for the selected host pool.</p></div></div>
+            <div class="deploy-summary-list">
+                <div><span>Host pool</span><strong id="summaryHostPool">—</strong></div>
+                <div><span>Location</span><strong id="summaryLocation">—</strong></div>
+                <div><span>Existing hosts</span><strong id="summaryExistingHosts">—</strong></div>
+                <div><span>Session host RG</span><strong id="summarySessionHostRg">—</strong></div>
+                <div><span>Network</span><strong id="summaryNetwork">—</strong><small id="summaryNetworkRg"></small></div>
+                <div><span>Compute Gallery</span><strong id="summaryGallery">—</strong><small id="summaryGalleryRg"></small></div>
+                <div><span>Image</span><strong id="summaryImage">—</strong><small id="summaryImageVersion"></small></div>
+                <div><span>Automation RG</span><strong id="summaryAutomationRg">—</strong></div>
+            </div>
+        </section>
+    </div>
+
+    <section class="panel deployment-review" id="deploymentReview" hidden>
+        <div class="panel-heading-row"><div><h2>Deployment review</h2><p class="muted">Final request that will eventually be submitted to DeploySessionHost.ps1.</p></div><span class="status-pill status-good">Ready for Automation integration</span></div>
+        <div class="deployment-review-grid">
+            <div><span>Target</span><strong id="reviewHostPool">—</strong></div>
+            <div><span>VM prefix</span><strong id="reviewPrefix">—</strong></div>
+            <div><span>Hosts requested</span><strong id="reviewCount">—</strong></div>
+            <div><span>Overwrite existing</span><strong id="reviewOverwrite">—</strong></div>
+        </div>
+        <p class="muted" style="margin-top:16px;">No Azure resources have been changed. The next step will connect this reviewed request to the approved Azure Automation runbook and job tracking.</p>
+    </section>
+}
+
+<style>
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:16px}.deploy-form-panel,.deploy-summary-panel{min-width:0}.deploy-fields{display:grid;gap:16px;margin-top:18px}.deploy-field{display:grid;gap:7px}.deploy-field>span,.deploy-summary-list span,.deployment-review-grid span{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.deploy-input{width:100%;box-sizing:border-box;background:var(--surface-2,#0d1a24);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:11px 12px;font:inherit}.deploy-input:focus{outline:2px solid var(--accent);outline-offset:1px}.deploy-field small,.deploy-toggle small,.deploy-summary-list small{color:var(--muted)}.deploy-toggle{display:flex;align-items:flex-start;gap:10px;padding:13px;border:1px solid var(--border);border-radius:8px;cursor:pointer}.deploy-toggle input{margin-top:3px}.deploy-toggle span{display:grid;gap:4px}.deploy-warning{margin-top:16px;padding:13px;border:1px solid #9a6b24;border-radius:8px;background:rgba(154,107,36,.12);display:grid;gap:5px}.deploy-warning[hidden]{display:none}.deploy-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}.deploy-summary-list{display:grid;margin-top:10px}.deploy-summary-list>div{display:grid;gap:3px;padding:11px 0;border-bottom:1px solid var(--border)}.deploy-summary-list>div:last-child{border-bottom:0}.deploy-summary-list strong{overflow-wrap:anywhere}.deployment-review{margin-top:16px}.deployment-review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}.deployment-review-grid>div{display:grid;gap:5px;padding:13px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025)}html[data-theme="light"] .deploy-input{background:#fff}html[data-theme="light"] .deployment-review-grid>div{background:#f8fafc}@media(max-width:1050px){.deploy-grid{grid-template-columns:1fr}.deployment-review-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:650px){.deployment-review-grid{grid-template-columns:1fr}}
+</style>
+
+@section Scripts {
+<script>
+(() => {
+    const pools = @Html.Raw(JsonSerializer.Serialize(poolData));
+    const hostPool = document.getElementById('deployHostPool');
+    if (!hostPool) return;
+    const prefix = document.getElementById('vmNamePrefix');
+    const count = document.getElementById('sessionHostCount');
+    const overwrite = document.getElementById('overwriteExisting');
+    const overwriteWarning = document.getElementById('overwriteWarning');
+    const review = document.getElementById('deploymentReview');
+    const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || '—'; };
+    function selectedPool() { return pools[hostPool.value]; }
+    function refreshSummary(resetPrefix = false) {
+        const pool = selectedPool(); if (!pool) return;
+        if (resetPrefix) prefix.value = pool.SuggestedVmPrefix || '';
+        text('summaryHostPool', pool.HostPoolName); text('summaryLocation', pool.Location); text('summaryExistingHosts', String(pool.ExistingHostCount)); text('summarySessionHostRg', pool.SessionHostResourceGroup);
+        text('summaryNetwork', [pool.VnetName, pool.SubnetName].filter(Boolean).join(' / ')); text('summaryNetworkRg', pool.NetworkResourceGroup);
+        text('summaryGallery', pool.GalleryName); text('summaryGalleryRg', pool.GalleryResourceGroup); text('summaryImage', pool.ImageDefinition); text('summaryImageVersion', pool.ImageVersion ? `Version ${pool.ImageVersion}` : 'Image version unavailable'); text('summaryAutomationRg', pool.AutomationResourceGroup);
+        review.hidden = true;
+    }
+    hostPool.addEventListener('change', () => refreshSummary(true));
+    overwrite.addEventListener('change', () => { overwriteWarning.hidden = !overwrite.checked; review.hidden = true; });
+    prefix.addEventListener('input', () => review.hidden = true); count.addEventListener('input', () => review.hidden = true);
+    document.getElementById('reviewDeployment')?.addEventListener('click', () => {
+        const pool = selectedPool(); const requested = Number.parseInt(count.value, 10); const vmPrefix = prefix.value.trim();
+        if (!pool) return;
+        if (!vmPrefix) { prefix.focus(); return; }
+        if (!Number.isInteger(requested) || requested < 1 || requested > 20) { count.focus(); return; }
+        text('reviewHostPool', pool.HostPoolName); text('reviewPrefix', vmPrefix); text('reviewCount', String(requested)); text('reviewOverwrite', overwrite.checked ? 'Yes — destructive workflow permitted' : 'No'); review.hidden = false; review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    refreshSummary(false);
+})();
+</script>
+}
