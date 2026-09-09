@@ -72,12 +72,12 @@ else
 
                 <label class="deploy-toggle">
                     <input id="overwriteExisting" type="checkbox" />
-                    <span><strong>Allow overwrite of existing hosts</strong><small>Leave this off for normal deployments. Enabling it permits the runbook's existing overwrite workflow.</small></span>
+                    <span><strong>Replace existing session hosts</strong><small>Select this option to remove the existing session hosts in the selected host pool before deploying their replacements.</small></span>
                 </label>
             </div>
 
             <div class="deploy-warning" id="overwriteWarning" hidden>
-                <strong>Overwrite enabled</strong>
+                <strong>Replace existing hosts enabled</strong>
                 <span>The deployment may drain and remove existing matching session hosts before recreating them. This will require an additional destructive-action confirmation when Automation submission is enabled.</span>
             </div>
 
@@ -108,7 +108,7 @@ else
             <div><span>Target</span><strong id="reviewHostPool">—</strong></div>
             <div><span>VM prefix</span><strong id="reviewPrefix">—</strong></div>
             <div><span>Hosts requested</span><strong id="reviewCount">—</strong></div>
-            <div><span>Overwrite existing</span><strong id="reviewOverwrite">—</strong></div>
+            <div><span>Replace existing</span><strong id="reviewOverwrite">—</strong></div>
         </div>
         <p class="muted" style="margin-top:16px;">No Azure resources have been changed. The next step will connect this reviewed request to the approved Azure Automation runbook and job tracking.</p>
     </section>
@@ -147,7 +147,7 @@ else
         if (!pool) return;
         if (!vmPrefix) { prefix.focus(); return; }
         if (!Number.isInteger(requested) || requested < 1 || requested > 20) { count.focus(); return; }
-        text('reviewHostPool', pool.HostPoolName); text('reviewPrefix', vmPrefix); text('reviewCount', String(requested)); text('reviewOverwrite', overwrite.checked ? 'Yes — destructive workflow permitted' : 'No'); review.hidden = false; review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        text('reviewHostPool', pool.HostPoolName); text('reviewPrefix', vmPrefix); text('reviewCount', String(requested)); text('reviewOverwrite', overwrite.checked ? 'Yes — existing session hosts will be replaced' : 'No'); review.hidden = false; review.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     refreshSummary(false);
 })();
