@@ -8,6 +8,11 @@
     <div><h1>Settings</h1><p>Configure how AVD Manager behaves for this browser and environment.</p></div>
 </div>
 
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="panel"><p class="muted">@Model.ErrorMessage</p></div>
+}
+
 <section class="settings-grid">
     <article class="panel settings-panel">
         <h2>Appearance</h2>
@@ -17,27 +22,57 @@
             <button type="button" class="theme-choice" data-set-theme="light"><span>☀</span><b>Light</b><small>White mode</small></button>
         </div>
     </article>
+
     <article class="panel settings-panel">
         <h2>Azure environment</h2>
-        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
-        {
-            <p class="muted">@Model.ErrorMessage</p>
-        }
-        else if (Model.Subscription is not null)
+        @if (Model.Subscription is not null)
         {
             <p class="muted">Connected subscription: <strong>@Model.Subscription.DisplayName</strong></p>
-            <p class="muted">Re-scan Azure after host pools, session hosts, images, storage, networking or other resources change. Discovery is read-only and you can review mappings again before saving.</p>
-            <form method="post" asp-page-handler="Rescan">
+            <p class="muted">Re-scan Azure after host pools, session hosts, images, storage, networking or Automation resources change.</p>
+            <form method="post" asp-page-handler="Rescan" data-progress-label="Starting Azure environment scan…">
                 <input type="hidden" asp-for="SubscriptionId" />
                 <button type="submit" class="primary-button">Re-scan Azure subscription</button>
             </form>
         }
         else
         {
-            <p class="muted">No persisted Azure environment has been configured yet. Until environment storage is enabled, choose the subscription again to perform a fresh scan.</p>
+            <p class="muted">No persisted Azure environment has been configured yet.</p>
             <a class="primary-button link-button" href="/Subscriptions">Select subscription &amp; re-scan</a>
         }
     </article>
+
+    <article class="panel settings-panel">
+        <h2>Azure Automation</h2>
+        <p class="muted">Choose the Automation Account used for session-host deployments. The resource group is derived from the discovered Azure resource and cannot be entered independently.</p>
+        @if (Model.EnvironmentConfiguration is null)
+        {
+            <p class="muted">Configure an Azure environment before selecting an Automation Account.</p>
+        }
+        else if (Model.AutomationAccounts.Count == 0)
+        {
+            <p class="muted">No Automation Accounts were discovered in this subscription. Re-scan the environment after creating or granting read access to the account.</p>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="SaveAutomation" data-progress-label="Validating Automation configuration…">
+                <label class="field-label" for="automationAccount">Automation Account</label>
+                <select id="automationAccount" asp-for="AutomationAccountId" required>
+                    <option value="">Select an Automation Account</option>
+                    @foreach (var account in Model.AutomationAccounts)
+                    {
+                        <option value="@account.Id">@account.Name — @account.ResourceGroup</option>
+                    }
+                </select>
+                <div class="setting-row"><span><b>Deployment runbook</b><small>@Model.DeploymentRunbook</small></span></div>
+                @if (Model.EnvironmentConfiguration.Automation is not null)
+                {
+                    <div class="setting-row"><span><b>Validated configuration</b><small>@Model.EnvironmentConfiguration.Automation.AutomationAccountName · @Model.EnvironmentConfiguration.Automation.ResourceGroupName · @Model.EnvironmentConfiguration.Automation.DeploymentRunbookName</small></span></div>
+                }
+                <button type="submit" class="primary-button">Validate &amp; save Automation</button>
+            </form>
+        }
+    </article>
+
     <article class="panel settings-panel">
         <h2>Safety</h2>
         <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Confirm destructive operations</b><small>Host replacement and profile deletion will require confirmation.</small></span></label>
