@@ -1,57 +1,38 @@
 # AVD Manager — Access Requirements Ledger
 
-This file records every Azure permission AVD Manager needs as features are implemented. During development we may temporarily use broader built-in roles for speed, but the production goal is to replace those with one or more least-privilege custom roles and narrowly scoped assignments.
+This file records every Azure permission AVD Manager needs as features are implemented. Development may temporarily use broader built-in roles, but production will use least-privilege custom roles and narrow scopes.
 
 ## Development approach
-
-- Temporary development shortcut: assign **Contributor** to the AVD Manager service identity at the narrowest practical scope needed to exercise write features.
-- Current AVD test scope: `rg-avd-hosts-uks`.
-- Do **not** assign Contributor at subscription scope unless a feature genuinely cannot be tested with a narrower assignment.
-- The Azure Automation Account managed identity remains a separate privileged execution identity for complex runbooks and should not be changed just to satisfy web-app permissions.
-- Before production, replace temporary broad assignments with least-privilege custom role definitions built from the permissions recorded below.
+- Temporary development shortcut: Contributor only at the narrowest practical scope required for write features.
+- Current AVD test scope: `rg-avd-hosts-uks`; do not use subscription-wide Contributor unless genuinely required.
+- Azure Automation Account managed identity remains the separate privileged execution identity for complex runbooks.
+- Before production, replace broad assignments with custom roles built from this ledger.
 
 ## Permissions observed so far
 
 | Area | Feature | Azure resource provider action | Access type | Suggested production scope | Status / notes |
 | --- | --- | --- | --- | --- | --- |
-| ARM discovery | Subscription/resource discovery | Read access to subscription/resource metadata and discovered Azure resources | Read | Subscription or selected resource groups, depending on onboarding model | Currently satisfied by Reader during development. Keep discovery read-only where possible. |
-| AVD | Read host pools/session hosts/application groups/scaling plans | `Microsoft.DesktopVirtualization/*/read` (to be narrowed to exact resource types before production) | Read | AVD resource group(s) | Used by discovery, host-pool details, live refresh and state reconciliation. |
-| AVD | Read live user sessions | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/read` | Read | AVD host-pool resource group or specific host pool | AVD Manager service identity. Direct ARM list-by-host-pool call displays user, session host, state, session ID and connection time. |
-| AVD | Log off user session | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/delete` | Destructive operational write | AVD host-pool resource group or specific host pool | AVD Manager service identity. Direct ARM DELETE of the validated session resource with `force=true`; UI requires explicit confirmation because this disconnects the user and closes the session. The Microsoft built-in Desktop Virtualization User Session Operator grants `Microsoft.DesktopVirtualization/hostpools/sessionhosts/usersessions/*`; production custom role should narrow to read/delete if testing confirms those are sufficient. |
-| AVD | Single/bulk drain mode (`allowNewSession`) | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write` | Write | AVD host-pool resource group or narrower host-pool scope where practical | Required for the direct ARM drain-mode API. Development shortcut: Contributor on `rg-avd-hosts-uks`. |
-| AVD | Enable/disable scaling plan association for a host pool | `Microsoft.DesktopVirtualization/scalingPlans/write` | Write | Scaling-plan resource group or specific scaling plan | Direct ARM PATCH updates `hostPoolReferences[].scalingPlanEnabled`; the service identity must have write access where the scaling plan resource lives. |
-| Compute | Read backing VM state/details | `Microsoft.Compute/virtualMachines/read` | Read | Session-host VM resource group(s) | Used to map AVD session hosts to backing Azure VMs. |
-| Compute | Start selected session-host VMs | `Microsoft.Compute/virtualMachines/start/action` | Operational action | Session-host VM resource group(s), or specific VM scope where practical | AVD Manager service identity. Direct ARM POST to the backing VM `start` action. |
-| Compute | Restart selected session-host VMs | `Microsoft.Compute/virtualMachines/restart/action` | Operational action | Session-host VM resource group(s), or specific VM scope where practical | AVD Manager service identity. Direct ARM POST to the backing VM `restart` action. Restart can interrupt active sessions and requires operator confirmation in the UI. |
-| Compute | Stop/deallocate selected session-host VMs | `Microsoft.Compute/virtualMachines/deallocate/action` | Operational action | Session-host VM resource group(s), or specific VM scope where practical | AVD Manager service identity. Direct ARM POST to `deallocate`; UI requires the selected AVD session host to be in drain mode first. |
-| Network | Read NIC/VNet/subnet relationships | `Microsoft.Network/networkInterfaces/read`, `Microsoft.Network/virtualNetworks/read`, subnet read via VNet resource | Read | Network resource group(s) | Used by discovery/mapping only at present. |
-| Compute Gallery | Read gallery/image/version relationships | Read access to Compute Gallery, image definitions and versions | Read | Image/gallery resource group(s) | Used by image discovery and host-pool detail display. Exact actions will be captured before production role creation. |
-| Automation | Discover Automation Account/runbooks | Read access to Automation resources | Read | Automation resource group / Automation Account | Needed for discovery and later job views. No drain-mode Automation write permission is needed now. |
-| Automation | Start approved operational runbooks | Exact Automation job/runbook actions **TBD when first complex operational workflow is wired up** | Write/read | Specific Automation Account | Do not grant broad Automation Contributor by default. Capture exact required actions during deployment/image/FSLogix implementation. |
-| Key Vault | Discover mapped Key Vault resource | Resource metadata read only from ARM | Read | Key Vault resource group | The web app should not need secret-value access for current discovery. If a future feature requires secrets, record the data-plane permission separately. |
-| Storage | Discover storage accounts / Azure Files metadata | Resource metadata read; exact storage data-plane actions TBD only if web app directly accesses shares | Read | Storage resource group / storage account | Existing PowerShell runbooks continue to use their own managed identity permissions. |
+| ARM discovery | Subscription/resource discovery | Read access to subscription/resource metadata | Read | Subscription or selected RGs | Reader currently satisfies development discovery. |
+| AVD | Read host pools/session hosts/application groups/scaling plans | `Microsoft.DesktopVirtualization/*/read` (narrow later) | Read | AVD RG(s) | Discovery/details/reconciliation. |
+| AVD | Read live user sessions | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/read` | Read | Host pool/RG | Required by UI and durable replacement safety checks. |
+| AVD | Log off user session | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/userSessions/delete` | Destructive write | Host pool/RG | Used only after explicit operator policy/confirmation; replacement workflow re-checks zero sessions afterwards. |
+| AVD | Drain mode | `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write` | Write | Host pool/RG | Required for direct ARM drain mode and replacement grace workflow. |
+| AVD | Scaling plan association | `Microsoft.DesktopVirtualization/scalingPlans/write` | Write | Scaling plan/RG | Direct ARM scaling-plan state change. |
+| Compute | Read VM | `Microsoft.Compute/virtualMachines/read` | Read | Session-host VM RG | Mapping/state. |
+| Compute | Start VM | `Microsoft.Compute/virtualMachines/start/action` | Operational | VM/RG | Direct ARM. |
+| Compute | Restart VM | `Microsoft.Compute/virtualMachines/restart/action` | Operational | VM/RG | Direct ARM; confirmation required. |
+| Compute | Deallocate VM | `Microsoft.Compute/virtualMachines/deallocate/action` | Operational | VM/RG | Direct ARM; drain required. |
+| Network | Read NIC/VNet/subnet | `Microsoft.Network/networkInterfaces/read`, `Microsoft.Network/virtualNetworks/read` | Read | Network RG | Discovery. |
+| Compute Gallery | Read gallery/images/versions | Exact read actions TBD before production role creation | Read | Gallery RG | Image discovery/deployment selection. |
+| Automation | Discover Automation Accounts | ARM resource read plus Automation Account read covered by discovery Reader during development | Read | Subscription for discovery, narrow after configuration | Settings lists only Automation Accounts discovered in the configured subscription. |
+| Automation | Validate approved deployment runbook | `Microsoft.Automation/automationAccounts/runbooks/read` | Read | Selected Automation Account | Settings GETs the configured `DeployAVDHosts` runbook and requires state `Published` before saving. REST API currently uses `2024-10-23`. |
+| Automation | Start approved runbook job | Exact job create/start action(s) to be verified when job submission is implemented | Write | Selected Automation Account | Do not grant Automation Contributor by default. Only `DeployAVDHosts` will be server-side allowlisted for this workflow. |
+| Automation | Read job/status/streams | Exact job and stream read actions to be verified with submission implementation | Read | Selected Automation Account | Needed for durable Job ID/status/output tracking. |
+| Key Vault | Discover mapped vault | Resource metadata read only | Read | Key Vault RG | Web app does not read secret values. |
+| Storage | Discover storage metadata | Resource metadata read; data-plane TBD | Read | Storage RG/account | Runbooks retain their own MI permissions. |
 
 ## Permissions to capture as features are added
-
-For every new operational feature, record:
-
-1. The exact Azure REST/SDK operation being called.
-2. The corresponding Azure RBAC action(s), including any required read/check actions.
-3. Whether the permission belongs to the **AVD Manager service identity** or the **Automation Account managed identity**.
-4. The narrowest practical assignment scope.
-5. Whether the action is read-only, operational write, destructive write, or data-plane access.
-6. Any extra permissions discovered from real 403/authorization failures during testing.
-
-Expected upcoming areas include Azure Automation job submission/read/output, session-host deployment, image management, storage/FSLogix operations and licensing/onboarding deployment tasks.
+For every new operational feature record the exact REST/SDK operation, RBAC Actions/DataActions, identity, narrowest scope, access classification, and any permissions discovered from real 403 responses.
 
 ## Production custom-role goal
-
-Before production:
-
-- Review this ledger against the code paths actually enabled in the product.
-- Remove permissions for abandoned or server-side-only features.
-- Split read-only discovery from operational write permissions if that gives cleaner separation of duties.
-- Create custom Azure role definition(s) using only the required `Actions` / `DataActions`.
-- Scope assignments to customer environment resource groups or specific resources wherever practical.
-- Add AVD Manager application roles so an authenticated user cannot exercise Azure write permissions merely because the backend identity has them.
-- Re-test every supported operation under the custom role and use any authorization failures to refine the role before release.
+Before production, review actual enabled code paths, remove abandoned permissions, split discovery from operational rights where useful, create custom roles with only required Actions/DataActions, scope narrowly, add AVD Manager application roles, and re-test every supported operation under those roles.
