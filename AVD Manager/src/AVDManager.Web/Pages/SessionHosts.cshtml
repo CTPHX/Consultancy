@@ -50,13 +50,10 @@ else
         <section class="panel session-host-panel" style="margin-bottom: 16px;" data-host-pool-id="@pool.HostPoolId">
             <div class="panel-heading-row">
                 <div>
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                        <span class="eyebrow">HOST POOL</span>
-                        @if (showManualRescanMessage)
-                        {
-                            <span class="status-pill status-good">@Model.ManualRescanMessage</span>
-                        }
-                    </div>
+                    @if (showManualRescanMessage)
+                    {
+                        <div style="margin-bottom:8px;"><span class="status-pill status-good">@Model.ManualRescanMessage</span></div>
+                    }
                     <h2>@pool.HostPoolName</h2>
                     <p class="muted">@pool.HostPoolLocation · @pool.SessionHosts.Count session host(s) · @pool.AvailableHosts available · @pool.ActiveSessions active session(s)</p>
                     <small class="last-scan">Last scanned @pool.LastScannedAtUtc.ToLocalTime().ToString("g")</small>
