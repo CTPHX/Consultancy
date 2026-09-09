@@ -12,50 +12,60 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 
 ## Azure discovery and operational identity
 - [ ] Use production App Service managed identity/service identity for ARM access.
-- [ ] Keep discovery at least-privilege Reader scope and separately document the minimum operational permissions needed for direct AVD session-host updates and Compute VM power operations.
-- [ ] **Remove the temporary development Contributor assignment from the AVD Manager service identity before production.** Contributor is currently acceptable only as a development shortcut and should be assigned at the narrowest practical resource-group scope, not subscription-wide.
-- [ ] Maintain `ACCESS-REQUIREMENTS.md` as the permission ledger while features are built; record every required ARM action/DataAction, identity, operation and intended scope as it is discovered.
-- [ ] Build and test production least-privilege custom role definition(s) from the completed access-requirements ledger rather than granting broad Contributor.
-- [ ] Review whether discovery/read and operational/write permissions should be separate production custom roles for stronger separation of duties.
-- [ ] Document minimum customer onboarding RBAC and separate read-only users from operators through AVD Manager app roles.
+- [ ] Keep discovery at least-privilege Reader scope and separately document minimum operational permissions.
+- [ ] Remove temporary development Contributor assignment before production.
+- [ ] Maintain `ACCESS-REQUIREMENTS.md` and build/test least-privilege custom roles from it.
+- [ ] Review separate discovery/read and operational/write production roles.
+- [ ] Document customer onboarding RBAC and AVD Manager app roles.
 
 ## Azure Automation integration
-- [ ] Keep the existing Automation Account managed identity as the privileged execution identity for complex runbook workflows such as deployment, image management and FSLogix operations.
-- [ ] Give the web application only minimum start/read rights for approved runbooks when an operation actually requires Automation; do not grant broad Contributor.
+- [ ] Keep the existing Automation Account managed identity as the privileged execution identity for complex runbooks.
+- [ ] Give the web application only minimum start/read rights for approved runbooks; do not grant broad Contributor.
 - [ ] Restrict runbooks, validate/whitelist parameters server-side, and audit destructive operations.
-- [ ] Keep simple AVD/Compute resource state operations such as session-host drain mode and VM start/restart/stop on the direct ARM API path rather than routing them through Automation.
+- [ ] Validate the selected Automation Account and published `DeployAVDHosts` runbook before enabling deployment.
+- [ ] Persist Automation Job ID, status, streams/output and final result so deployment history survives browser disconnects and app restarts.
+- [ ] Keep simple AVD/Compute state operations on the direct ARM API path.
+
+## Durable replacement / grace-period workflow
+- [ ] V1: persist replacement operation state outside the browser; browser closure must not stop the drain/grace workflow.
+- [ ] V1: drain existing hosts, record grace-period deadline and force-logoff policy, re-check live sessions before every destructive transition, and require zero sessions before starting the replacement runbook.
+- [ ] V1: on application restart, recover outstanding operations from durable storage and reconcile current Azure state before continuing. Never infer that a previously observed zero-session state is still valid.
+- [ ] V1 safety: if AVD Manager is offline when a grace deadline expires, do nothing destructive while offline; resume only after the app returns and current state is revalidated.
+- [ ] Production hardening: move deadline/session monitoring to an Azure-side durable scheduler/worker (for example Durable Functions or equivalent) so grace-period deadlines can fire even while the web application is completely unavailable.
+- [ ] Production hardening: make deadline processing idempotent, use leases/locking for scale-out, record transition/audit history, and prevent duplicate Automation job submission.
 
 ## Direct AVD / Compute operational API
-- [ ] Add authorization/app-role checks and durable audit records around drain-mode and VM power operations.
-- [ ] Replace raw Azure authorization/API messages shown to users with friendly errors while retaining structured diagnostic detail in protected logs.
-- [ ] Add retry/backoff and partial-failure handling for bulk host operations; never silently report a partially successful bulk action as fully successful.
-- [ ] Reconcile UI state from Azure after direct operations and record requested/resulting drain and VM power state.
-- [ ] Confirm the production custom role includes `Microsoft.DesktopVirtualization/hostPools/sessionHosts/write`, `Microsoft.Compute/virtualMachines/start/action`, `Microsoft.Compute/virtualMachines/restart/action`, `Microsoft.Compute/virtualMachines/deallocate/action`, and only the read permissions required by the implemented UI.
-- [ ] Keep the stop/deallocate safety rule enforced server-side: selected AVD session hosts must already be in drain mode before their backing VM can be stopped.
-- [ ] Review restart policy before production: restart currently requires explicit operator confirmation because it can interrupt active sessions; decide whether production should additionally require drain mode and/or zero active sessions.
-- [ ] Add explicit VM power-state display/reconciliation so operators can distinguish AVD registration status from Azure VM running/deallocated state.
-- [ ] Replace request-bound operation progress with durable operation/job tracking before production so long-running work survives browser disconnects, App Service restarts and scale-out. Current direct-operation progress is intentionally an in-page indicator while the server waits for Azure completion.
+- [ ] Add authorization/app-role checks and durable audit records around drain mode, user logoff and VM power operations.
+- [ ] Replace raw Azure API messages shown to users with friendly errors while retaining protected diagnostics.
+- [ ] Add retry/backoff and partial-failure handling for bulk operations.
+- [ ] Reconcile UI state from Azure after direct operations.
+- [ ] Confirm production custom role includes only required AVD/Compute actions from the access ledger.
+- [ ] Keep stop/deallocate safety rule enforced server-side: selected hosts must be in drain mode.
+- [ ] Review restart policy before production.
+- [ ] Add explicit VM power-state display/reconciliation.
+- [ ] Replace remaining request-bound progress with durable operation/job tracking.
 
 ## Secrets and configuration
-- [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate Development/Test/Production configuration.
+- [ ] Keep all secrets out of source; use App Service settings/Key Vault references and separate environments.
 - [ ] Prevent secrets appearing in logs/errors/audit records and define rotation procedures.
 
 ## Hosting and networking
-- [ ] Deploy to Azure App Service, remove Codespaces-specific assumptions, enforce HTTPS, configure production domain/certificate and review VNet/private endpoint/access restriction requirements.
+- [ ] Deploy to Azure App Service, remove Codespaces-specific assumptions, enforce HTTPS and review VNet/private endpoint/access restrictions.
 
 ## Data and persistence
-- [ ] **Replace the current development `App_Data/environment.json` configuration store with Azure SQL before production.** The file store is deliberately temporary and is not suitable for App Service scale-out, customer isolation, backup or durable configuration.
-- [ ] Persist customer/tenant/environment/subscription, selected deployment mappings, discovery snapshots and last successful scan timestamp in Azure SQL.
-- [ ] Re-scan the persisted configured subscription directly and merge newly discovered Azure state while preserving explicit administrator mapping overrides.
-- [ ] Define handling for resources added, removed, renamed or moved between scans.
-- [ ] Add tenant isolation to every persisted entity, migrations, backup/restore, retention and encryption-at-rest controls.
+- [ ] Replace development `App_Data/environment.json` with Azure SQL before production.
+- [ ] Store durable deployment/replacement operations in Azure SQL for production; do not rely on process memory or browser state.
+- [ ] Persist customer/tenant/environment/subscription, selected mappings, Automation configuration, discovery snapshots and scan timestamps.
+- [ ] Re-scan persisted subscription and preserve explicit administrator overrides.
+- [ ] Define handling for resources added, removed, renamed or moved.
+- [ ] Add tenant isolation, migrations, backup/restore, retention and encryption-at-rest controls.
 
 ## Audit and security controls
-- [ ] Record user, tenant, environment, operation, parameters, runbook/job ID where applicable, result and timestamp; retain destructive actions appropriately.
+- [ ] Record user, tenant, environment, operation, parameters, runbook/job ID, result and timestamp.
 - [ ] Add server-side authorization, CSRF review, cookie hardening, rate limiting, security headers/CSP and least-privilege review.
 
 ## Reliability and operations
-- [ ] Add Application Insights/structured logging, health checks, production error pages, retry/backoff, discovery timeouts/cancellation, alerts and scale-out validation.
+- [ ] Add Application Insights/structured logging, health checks, production error pages, retry/backoff, timeouts/cancellation, alerts and scale-out validation.
 
 ## Commercial / multi-customer readiness
 - [ ] Implement customer/Entra tenant/environment model, licensing/entitlements, onboarding/consent, repeatable RBAC deployment and MSP/customer role separation.
@@ -63,10 +73,10 @@ This is a living checklist of development-only choices, temporary shortcuts, and
 
 ## Current development-specific items already identified
 - [ ] Codespaces port 5000 is temporarily public for Entra callback testing.
-- [ ] Codespaces uses a temporary client secret via .NET user-secrets; Codespace rebuilds can lose it.
+- [ ] Codespaces uses a temporary client secret via .NET user-secrets.
 - [ ] Localhost and Codespaces redirect URIs are development-only.
-- [ ] Entra **Implicit grant and hybrid flows → ID tokens** is temporarily enabled and must be removed after production authorization-code flow is verified.
+- [ ] Entra implicit/hybrid ID tokens are temporary and must be removed after production auth-code flow verification.
 - [ ] ASP.NET token caches and Data Protection keys are not yet durable/distributed.
 - [ ] No production `/Error` page has yet been implemented.
 - [ ] Azure discovery will continue to expand as operational screens are built.
-- [ ] Environment configuration now persists locally to `App_Data/environment.json` for development only; production must use Azure SQL.
+- [ ] Environment configuration persists locally to `App_Data/environment.json` for development only; production must use Azure SQL.
