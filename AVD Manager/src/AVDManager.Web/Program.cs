@@ -48,6 +48,7 @@ builder.Services.AddScoped<AVDManager.Web.Services.AvdUserSessionService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureVmOperationsService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureAutomationService>();
 builder.Services.AddSingleton<AVDManager.Web.Services.EnvironmentConfigurationStore>();
+builder.Services.AddSingleton<AVDManager.Web.Services.DeploymentOperationStore>();
 
 var app = builder.Build();
 app.UseForwardedHeaders();
