@@ -2,7 +2,8 @@ namespace AVDManager.Web.Services;
 
 public sealed class DeploymentOrchestrationWorker : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ActiveAutomationPollInterval = TimeSpan.FromSeconds(10);
     private static readonly string[] AutomationActiveStatuses = ["Submitted", "New", "Activating", "Queued", "Running", "Resuming", "Stopping"];
 
     private readonly IServiceScopeFactory _scopeFactory;
@@ -29,9 +30,17 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { _logger.LogError(ex, "Deployment orchestration worker iteration failed."); }
 
-            try { await Task.Delay(PollInterval, stoppingToken); }
+            var delay = await HasActiveAutomationJobsAsync(stoppingToken) ? ActiveAutomationPollInterval : IdlePollInterval;
+            try { await Task.Delay(delay, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
+    }
+
+    private async Task<bool> HasActiveAutomationJobsAsync(CancellationToken cancellationToken)
+    {
+        var operations = await _operationStore.ListAsync(cancellationToken);
+        return operations.Any(operation => !string.IsNullOrWhiteSpace(operation.AutomationJobId) &&
+            AutomationActiveStatuses.Contains(operation.Status, StringComparer.OrdinalIgnoreCase));
     }
 
     private async Task ProcessOperationsAsync(CancellationToken cancellationToken)
