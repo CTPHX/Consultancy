@@ -89,6 +89,55 @@ Once the Azure Automation deployment has been submitted, cancellation is no long
 
 Deployments for different host pools are independent operations. This allows AVD Manager to manage deployments to a primary and secondary host pool at the same time without one pool's grace period or session state blocking the other.
 
+## Settings → Advanced deployment defaults
+
+AVD Manager should keep deployment infrastructure configuration out of the normal Deploy Hosts form. The recommended design is a **separate tile for each discovered host pool** under **Settings → Advanced deployment defaults**.
+
+Each host-pool tile should show the discovered mappings and allow only the defaults/overrides that are genuinely pool-specific. Discovered resource relationships should be pre-filled and remain read-only unless the engineer deliberately chooses an override.
+
+Recommended host-pool defaults:
+
+- Join type: `ADDS` or `ENTRA`.
+- Default VM size.
+- Default gallery image definition and image version (`Latest` by default).
+- Session-host resource group.
+- Gallery resource group and gallery name.
+- VNet resource group, VNet and subnet.
+- Key Vault name.
+- ADDS domain FQDN and OU path when Join type is ADDS.
+- Install RDS role on Server OS toggle where required.
+- Temporarily disable attached scaling plans during deployment.
+
+Recommended environment-wide defaults, shared across host pools unless overridden:
+
+- Local-admin username/password **secret names**.
+- ADDS join username/password **secret names**.
+- Entra tenant ID.
+- Intune enrollment toggle and MDM ID.
+- Environment tag used on newly created VMs.
+
+Secret **values** must never be stored in AVD Manager deployment settings. Only Key Vault names and secret names are persisted; the Azure Automation managed identity reads the values at run time.
+
+The normal Deploy Hosts page should stay focused on engineer choices: target host pool, VM prefix, host count, VM size, image/version, replacement mode, grace period and force-logoff policy.
+
+## DeployAVDHosts runbook contract
+
+The revised runbook is designed to be reusable across host pools rather than containing customer-specific resource names. AVD Manager supplies the selected host-pool mapping when the Automation job is created.
+
+The runbook accepts the following main groups of parameters:
+
+- Environment: subscription ID and location.
+- Target: host pool name, host-pool resource group and session-host resource group.
+- Deployment: VM prefix, host count, replace-existing flag and VM size.
+- Image: gallery resource group, gallery name, image definition and image version.
+- Network: VNet resource group, VNet and subnet.
+- Security/join: Key Vault name, join type, secret names, domain/OU or Entra/Intune settings.
+- Behaviour: temporary scaling-plan disable, Server OS RDS-role option and environment tag.
+
+AVD Manager owns grace periods and forced logoff. The runbook deliberately has **no ForceLogoffUsers parameter**. Before destructive replacement it repeats a fail-closed live user-session check and refuses to delete any existing host while a user session remains.
+
+The runbook also preflights the host pool, session-host resource group, network/subnet, image version, Key Vault credentials and AVD registration-token creation before deleting an existing session host. This reduces the chance of avoidable downtime caused by a bad mapping or missing permission.
+
 ## Suggested safe first test
 
 For validating the grace-period path:
