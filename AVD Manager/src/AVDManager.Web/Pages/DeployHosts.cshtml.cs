@@ -304,7 +304,7 @@ public sealed class DeployHostsModel : PageModel
         if (SessionHostCount is < 1 or > 20) return "Number of hosts must be between 1 and 20.";
         if (string.IsNullOrWhiteSpace(VmSize)) return "VM size is required.";
         if (string.IsNullOrWhiteSpace(GalleryImageVersion)) return "Gallery image version is required.";
-        if (ReplaceExisting && GracePeriodHours is < 1 or > 24) return "Grace period must be between 1 and 24 hours.";
+        if (ReplaceExisting && GracePeriodHours is < 0 or > 24) return "Grace period must be Immediate or between 1 and 24 hours.";
         return null;
     }
 
