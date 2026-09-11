@@ -238,26 +238,6 @@ public sealed class DeployHostsModel : PageModel
         return RedirectToPage();
     }
 
-    public async Task<IActionResult> OnPostClearAsync(Guid operationId, CancellationToken cancellationToken)
-    {
-        var operation = (await _operationStore.ListAsync(cancellationToken)).FirstOrDefault(o => o.Id == operationId);
-        if (operation is null)
-        {
-            ErrorMessage = "The deployment operation no longer exists.";
-            return RedirectToPage();
-        }
-
-        if (!string.IsNullOrWhiteSpace(operation.AutomationJobId))
-        {
-            ErrorMessage = "This deployment has already been submitted to Azure Automation and cannot be cleared from this page.";
-            return RedirectToPage();
-        }
-
-        await _operationStore.RemoveAsync(operationId, cancellationToken);
-        StatusMessage = "Deployment operation cleared. No Azure resources or session-host states were changed.";
-        return RedirectToPage();
-    }
-
     public async Task<IActionResult> OnPostCheckSessionsAsync(Guid operationId, CancellationToken cancellationToken)
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
