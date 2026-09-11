@@ -34,6 +34,10 @@ public sealed class DeployHostsModel : PageModel
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public IReadOnlyList<DeployHostPoolOption> HostPools { get; private set; } = [];
     public IReadOnlyList<DeploymentOperation> Operations { get; private set; } = [];
+    public IReadOnlyList<DeploymentOperation> VisibleOperations => Operations
+        .Where(o => ActiveStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase))
+        .Concat(Operations.Where(o => !ActiveStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase)).Take(10))
+        .ToList();
     public SavedAutomationConfiguration? Automation => EnvironmentConfiguration?.Automation;
 
     [BindProperty] public string HostPoolId { get; set; } = string.Empty;
