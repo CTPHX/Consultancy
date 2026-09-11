@@ -304,7 +304,7 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
             ["SessionHostResourceGroupName"] = Required(defaults.SessionHostResourceGroupName, "Session host resource group"),
             ["VmNamePrefix"] = operation.VmNamePrefix,
             ["SessionHostCount"] = operation.SessionHostCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["OverwriteExisting"] = operation.ReplaceExisting.ToString(),
+            ["OverwriteExisting"] = BoolParameter(operation.ReplaceExisting),
             ["VmSize"] = operation.VmSize,
             ["GalleryResourceGroupName"] = Required(defaults.GalleryResourceGroupName, "Gallery resource group"),
             ["GalleryName"] = Required(defaults.GalleryName, "Gallery name"),
@@ -322,13 +322,17 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
             ["DomainJoinUsernameSecretName"] = shared.DomainJoinUsernameSecretName,
             ["DomainJoinPasswordSecretName"] = shared.DomainJoinPasswordSecretName,
             ["TenantId"] = shared.TenantId ?? string.Empty,
-            ["EnableIntuneEnrollment"] = shared.EnableIntuneEnrollment.ToString(),
+            ["EnableIntuneEnrollment"] = BoolParameter(shared.EnableIntuneEnrollment),
             ["IntuneMdmId"] = shared.IntuneMdmId ?? string.Empty,
-            ["InstallRdsRoleOnServerOS"] = defaults.InstallRdsRoleOnServerOs.ToString(),
-            ["TemporarilyDisableScalingDuringDeployment"] = defaults.TemporarilyDisableScalingDuringDeployment.ToString(),
+            ["InstallRdsRoleOnServerOS"] = BoolParameter(defaults.InstallRdsRoleOnServerOs),
+            ["TemporarilyDisableScalingDuringDeployment"] = BoolParameter(defaults.TemporarilyDisableScalingDuringDeployment),
             ["EnvironmentTag"] = shared.EnvironmentTagValue
         };
     }
+
+    // Azure Automation's PowerShell binder is strict for [bool] runbook parameters.
+    // Numeric 1/0 is accepted reliably when parameters are submitted through ARM.
+    private static string BoolParameter(bool value) => value ? "1" : "0";
 
     private static string Required(string? value, string label) =>
         !string.IsNullOrWhiteSpace(value) ? value : throw new InvalidOperationException($"{label} is not configured.");
