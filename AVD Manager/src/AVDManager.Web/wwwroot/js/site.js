@@ -36,9 +36,18 @@
   // Refresh read-only page state every 30 seconds. Avoid refreshing while the user
   // is editing a form so deployment/settings input is never discarded.
   let formDirty = false;
+
+  const markDirty = event => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+    if (target.matches('[data-live-update-toggle]')) return;
+    formDirty = true;
+  };
+
+  document.addEventListener('input', markDirty);
+  document.addEventListener('change', markDirty);
+
   document.querySelectorAll('form').forEach(form => {
-    form.addEventListener('input', () => { formDirty = true; });
-    form.addEventListener('change', () => { formDirty = true; });
     form.addEventListener('submit', () => { formDirty = false; });
   });
   window.setInterval(() => {
