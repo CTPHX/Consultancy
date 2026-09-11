@@ -56,6 +56,8 @@ public sealed class DeployHostsModel : PageModel
     {
         var environment = await _environmentStore.GetAsync(cancellationToken);
         if (environment is null) return RedirectToPage("/Onboarding");
+
+        await ReconcileActiveOperationsAsync(environment, cancellationToken);
         await LoadAsync(environment, cancellationToken);
         return Page();
     }
@@ -295,11 +297,62 @@ public sealed class DeployHostsModel : PageModel
         return RedirectToPage();
     }
 
+    private async Task ReconcileActiveOperationsAsync(EnvironmentConfiguration environment, CancellationToken cancellationToken)
+    {
+        var operations = await _operationStore.ListAsync(cancellationToken);
+        var waitingOperations = operations
+            .Where(operation => operation.Status.Equals("WaitingForSessions", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        foreach (var operation in waitingOperations)
+        {
+            try
+            {
+                var sessions = await _userSessionService.ListByHostPoolAsync(
+                    environment.SubscriptionId,
+                    operation.HostPoolResourceGroup,
+                    operation.HostPoolName,
+                    cancellationToken);
+
+                var count = sessions.Count;
+                var deadlineExpired = operation.GraceDeadlineUtc is not null &&
+                                      DateTimeOffset.UtcNow >= operation.GraceDeadlineUtc.Value;
+
+                var status = count == 0 ? "ReadyForAutomation" : "WaitingForSessions";
+                var message = count == 0
+                    ? "No user sessions remain. The operation is ready for the next Automation stage."
+                    : deadlineExpired
+                        ? operation.ForceLogoffAtDeadline
+                            ? $"{count} user session(s) remain and the grace deadline has expired. Forced logoff is configured but is intentionally not executed in this test stage."
+                            : $"{count} user session(s) remain and the grace deadline has expired. The operation will continue waiting for users to log off normally."
+                        : $"{count} user session(s) remain. The grace period is still running.";
+
+                if (count != operation.ActiveSessionCount ||
+                    !status.Equals(operation.Status, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(message, operation.LastMessage, StringComparison.Ordinal))
+                {
+                    await _operationStore.UpdateAsync(operation with
+                    {
+                        UpdatedAtUtc = DateTimeOffset.UtcNow,
+                        ActiveSessionCount = count,
+                        Status = status,
+                        LastMessage = message
+                    }, cancellationToken);
+                }
+            }
+            catch
+            {
+                // Keep the persisted operation unchanged if a periodic reconciliation
+                // cannot read Azure. The next refresh can safely retry.
+            }
+        }
+    }
+
     private async Task LoadAsync(EnvironmentConfiguration environment, CancellationToken cancellationToken)
     {
         EnvironmentConfiguration = environment;
         HostPools = environment.HostPools.OrderBy(pool => pool.HostPoolName, StringComparer.OrdinalIgnoreCase).Select(BuildHostPoolOption).ToList();
-        Operations = (await _operationStore.ListAsync(cancellationToken)).Take(10).ToList();
+        Operations = await _operationStore.ListAsync(cancellationToken);
     }
 
     private string? ValidateRequest()
