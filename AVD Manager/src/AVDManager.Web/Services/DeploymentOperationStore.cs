@@ -46,6 +46,19 @@ public sealed class DeploymentOperationStore
         finally { _gate.Release(); }
     }
 
+    public async Task RemoveAsync(Guid operationId, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var items = await ReadUnsafeAsync(cancellationToken);
+            var removed = items.RemoveAll(x => x.Id == operationId);
+            if (removed == 0) throw new InvalidOperationException("Deployment operation no longer exists.");
+            await WriteUnsafeAsync(items, cancellationToken);
+        }
+        finally { _gate.Release(); }
+    }
+
     private async Task<List<DeploymentOperation>> ReadUnsafeAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_filePath)) return [];
