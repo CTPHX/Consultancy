@@ -72,10 +72,6 @@ else
         };
 
         <div class="deployment-operations">
-            <div class="operations-heading">
-                <div><span class="eyebrow">DEPLOYMENT OPERATIONS</span><h2>Deployments</h2><p class="muted">Each host pool runs as an independent durable deployment operation.</p></div>
-            </div>
-
             @foreach (var group in operationGroups)
             {
                 if (group.Operations.Count == 0) { continue; }
