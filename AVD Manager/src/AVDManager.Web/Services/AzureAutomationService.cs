@@ -151,7 +151,24 @@ public sealed class AzureAutomationService
                     if (!supportedStream)
                         continue;
 
-                    var text = properties.TryGetProperty("streamText", out var textElement)
+                    var streamId = properties.TryGetProperty("jobStreamId", out var streamIdElement)
+                        ? streamIdElement.GetString()
+                        : item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+
+                    if (string.IsNullOrWhiteSpace(streamId))
+                        continue;
+
+                    // The List By Job response is metadata-first and may not include streamText.
+                    // Fetch each stream by id to retrieve the actual content.
+                    using var detailDocument = await GetArmJsonAsync(
+                        BuildJobStreamUrl(subscriptionId, resourceGroupName, automationAccountName, jobId, streamId),
+                        cancellationToken);
+
+                    var detailRoot = detailDocument.RootElement;
+                    var detailProperties = detailRoot.TryGetProperty("properties", out var dp) ? dp : default;
+
+                    var text = detailProperties.ValueKind != JsonValueKind.Undefined &&
+                               detailProperties.TryGetProperty("streamText", out var textElement)
                         ? textElement.GetString()
                         : null;
 
@@ -159,16 +176,13 @@ public sealed class AzureAutomationService
                         continue;
 
                     DateTimeOffset? time = null;
-                    if (properties.TryGetProperty("time", out var timeElement) &&
+                    if (detailProperties.ValueKind != JsonValueKind.Undefined &&
+                        detailProperties.TryGetProperty("time", out var timeElement) &&
                         DateTimeOffset.TryParse(timeElement.GetString(), out var parsed))
                         time = parsed;
 
-                    var streamId = properties.TryGetProperty("jobStreamId", out var streamIdElement)
-                        ? streamIdElement.GetString()
-                        : item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
-
                     lines.Add(new AutomationJobOutputLine(
-                        streamId ?? Guid.NewGuid().ToString(),
+                        streamId,
                         time,
                         string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase)
                             ? text
@@ -195,6 +209,9 @@ public sealed class AzureAutomationService
 
     private string BuildJobStreamsUrl(string subscriptionId, string resourceGroupName, string automationAccountName, string jobId) =>
         $"https://management.azure.com/subscriptions/{Uri.EscapeDataString(subscriptionId)}/resourceGroups/{Uri.EscapeDataString(resourceGroupName)}/providers/Microsoft.Automation/automationAccounts/{Uri.EscapeDataString(automationAccountName)}/jobs/{Uri.EscapeDataString(jobId)}/streams?api-version={ApiVersion}";
+
+    private string BuildJobStreamUrl(string subscriptionId, string resourceGroupName, string automationAccountName, string jobId, string streamId) =>
+        $"https://management.azure.com/subscriptions/{Uri.EscapeDataString(subscriptionId)}/resourceGroups/{Uri.EscapeDataString(resourceGroupName)}/providers/Microsoft.Automation/automationAccounts/{Uri.EscapeDataString(automationAccountName)}/jobs/{Uri.EscapeDataString(jobId)}/streams/{Uri.EscapeDataString(streamId)}?api-version={ApiVersion}";
 
     private async Task<JsonDocument> GetArmJsonAsync(string url, CancellationToken cancellationToken) =>
         await SendArmJsonAsync(HttpMethod.Get, url, null, cancellationToken);
