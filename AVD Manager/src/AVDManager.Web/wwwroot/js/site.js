@@ -1,6 +1,7 @@
 (() => {
   const root = document.documentElement;
   const savedTheme = localStorage.getItem('avd-manager-theme') || 'dark';
+  const liveUpdateKey = 'avd-manager-live-update';
   root.dataset.theme = savedTheme;
 
   const toggle = document.getElementById('themeToggle');
@@ -20,6 +21,30 @@
   refreshThemeUi();
   toggle?.addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
   document.querySelectorAll('[data-set-theme]').forEach(button => button.addEventListener('click', () => setTheme(button.dataset.setTheme)));
+
+  const liveUpdateToggle = document.querySelector('[data-live-update-toggle]');
+  const liveUpdateEnabled = () => localStorage.getItem(liveUpdateKey) !== 'off';
+  const refreshLiveUpdateUi = () => {
+    if (liveUpdateToggle) liveUpdateToggle.checked = liveUpdateEnabled();
+  };
+  refreshLiveUpdateUi();
+  liveUpdateToggle?.addEventListener('change', () => {
+    localStorage.setItem(liveUpdateKey, liveUpdateToggle.checked ? 'on' : 'off');
+    refreshLiveUpdateUi();
+  });
+
+  // Refresh read-only page state every 30 seconds. Avoid refreshing while the user
+  // is editing a form so deployment/settings input is never discarded.
+  let formDirty = false;
+  document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('input', () => { formDirty = true; });
+    form.addEventListener('change', () => { formDirty = true; });
+    form.addEventListener('submit', () => { formDirty = false; });
+  });
+  window.setInterval(() => {
+    if (!liveUpdateEnabled() || document.hidden || formDirty) return;
+    window.location.reload();
+  }, 30000);
 
   const infoToggle = document.getElementById('infoToggle');
   const infoPanel = document.getElementById('infoPanel');
