@@ -13,7 +13,6 @@
         <h1>Host Pools</h1>
         <p>@Model.EnvironmentConfiguration!.SubscriptionName · Azure Virtual Desktop host pools and registered session hosts</p>
     </div>
-    <a class="secondary-button link-button" href="/Settings">Re-scan environment</a>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
@@ -47,7 +46,7 @@ else
         var showManualRescanMessage = !string.IsNullOrWhiteSpace(Model.ManualRescanMessage) &&
                                       string.Equals(Model.ManualRescanHostPoolId, pool.HostPoolId, StringComparison.OrdinalIgnoreCase);
 
-        <section class="panel session-host-panel" style="margin-bottom: 16px;" data-host-pool-id="@pool.HostPoolId">
+        <section class="panel session-host-panel host-pool-clickable" style="margin-bottom: 16px;" data-host-pool-id="@pool.HostPoolId" data-details-url="@Url.Page("/HostPool", new { id = pool.HostPoolName })" tabindex="0" role="link" aria-label="Open details for @pool.HostPoolName">
             <div class="panel-heading-row">
                 <div>
                     @if (showManualRescanMessage)
@@ -71,7 +70,6 @@ else
                     {
                         <span class="status-pill status-neutral">No hosts</span>
                     }
-                    <a asp-page="/HostPool" asp-route-id="@pool.HostPoolName" class="secondary-button link-button">More details</a>
                     <form method="post" asp-page-handler="RescanHostPool" class="host-pool-rescan-form">
                         <input type="hidden" name="hostPoolId" value="@pool.HostPoolId" />
                         <input type="hidden" name="automatic" value="false" />
@@ -163,6 +161,26 @@ else
             if (button) {
                 button.disabled = true;
                 button.textContent = 'Re-scanning…';
+            }
+        });
+    });
+
+    document.querySelectorAll('.host-pool-clickable').forEach(tile => {
+        const openDetails = () => {
+            const url = tile.dataset.detailsUrl;
+            if (url) window.location.href = url;
+        };
+
+        tile.addEventListener('click', event => {
+            if (event.target.closest('a,button,input,select,textarea,form,table')) return;
+            openDetails();
+        });
+
+        tile.addEventListener('keydown', event => {
+            if (event.target !== tile) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openDetails();
             }
         });
     });
