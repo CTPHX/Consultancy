@@ -37,14 +37,9 @@ else
             @foreach (var pool in Model.HostPools)
             {
                 if (!Model.DeploymentDefaultsReadiness.TryGetValue(pool.HostPoolId, out var readiness)) { continue; }
-                <article class="deployment-message @(readiness.IsConfigured ? "deployment-message-good" : "deployment-message-warning") permission-readiness-card" data-defaults-host-pool="@pool.HostPoolId" hidden>
-                    @if (readiness.IsConfigured)
-                    {
-                        <strong>Advanced deployment defaults configured — @pool.HostPoolName</strong>
-                        <span>This host pool has the required deployment defaults saved in Settings.</span>
-                    }
-                    else
-                    {
+                @if (!readiness.IsConfigured)
+                {
+                    <article class="deployment-message deployment-message-warning permission-readiness-card" data-defaults-host-pool="@pool.HostPoolId" hidden>
                         <strong>Advanced deployment defaults incomplete — @pool.HostPoolName</strong>
                         <span>Configure this host pool in Settings before submitting a deployment.</span>
                         @if (readiness.MissingFields.Count > 0)
@@ -52,8 +47,8 @@ else
                             <small>Missing: @string.Join(", ", readiness.MissingFields)</small>
                         }
                         <a class="secondary-button link-button" href="/Settings#advanced-deployment-defaults">Open deployment defaults</a>
-                    }
-                </article>
+                    </article>
+                }
             }
         </section>
     }
