@@ -85,3 +85,64 @@
         <label class="setting-row"><input type="checkbox" checked disabled /><span><b>Discovery is read-only</b><small>Azure discovery and re-scans do not change resources.</small></span></label>
     </article>
 </section>
+
+@if (Model.EnvironmentConfiguration is not null)
+{
+    <section class="advanced-deployment-section">
+        <div class="advanced-heading">
+            <div><span class="eyebrow">DEPLOYMENT CONFIGURATION</span><h2>Advanced deployment defaults</h2><p class="muted">Infrastructure mappings are saved per host pool. Secret values remain in Key Vault; AVD Manager stores names only.</p></div>
+        </div>
+
+        <form method="post" asp-page-handler="SaveDeploymentDefaults" data-progress-label="Saving deployment defaults…">
+            <article class="panel advanced-shared-card">
+                <div class="panel-heading-row"><div><h2>Environment-wide defaults</h2><p class="muted">Shared values used unless a host-pool-specific deployment parameter overrides them.</p></div></div>
+                <div class="advanced-fields">
+                    <label><span>Local admin username secret</span><input asp-for="DeploymentDefaults.LocalAdminUsernameSecretName" /></label>
+                    <label><span>Local admin password secret</span><input asp-for="DeploymentDefaults.LocalAdminPasswordSecretName" /></label>
+                    <label><span>Domain join username secret</span><input asp-for="DeploymentDefaults.DomainJoinUsernameSecretName" /></label>
+                    <label><span>Domain join password secret</span><input asp-for="DeploymentDefaults.DomainJoinPasswordSecretName" /></label>
+                    <label><span>Entra tenant ID</span><input asp-for="DeploymentDefaults.TenantId" placeholder="Optional for ADDS-only environments" /></label>
+                    <label><span>Intune MDM ID</span><input asp-for="DeploymentDefaults.IntuneMdmId" /></label>
+                    <label><span>Environment tag</span><input asp-for="DeploymentDefaults.EnvironmentTagValue" /></label>
+                    <label class="advanced-toggle"><input asp-for="DeploymentDefaults.EnableIntuneEnrollment" /><span>Enable Intune enrollment for Entra-joined hosts</span></label>
+                </div>
+            </article>
+
+            <div class="host-pool-default-grid">
+                @for (var i = 0; i < Model.HostPoolDeploymentDefaults.Count; i++)
+                {
+                    <article class="panel host-pool-default-card">
+                        <input type="hidden" asp-for="HostPoolDeploymentDefaults[i].HostPoolId" />
+                        <input type="hidden" asp-for="HostPoolDeploymentDefaults[i].HostPoolName" />
+                        <div class="host-pool-default-heading">
+                            <div><span class="eyebrow">HOST POOL</span><h3>@Model.HostPoolDeploymentDefaults[i].HostPoolName</h3></div>
+                            <span class="status-pill status-neutral">Per-pool defaults</span>
+                        </div>
+                        <div class="advanced-fields">
+                            <label><span>Join type</span><select asp-for="HostPoolDeploymentDefaults[i].JoinType"><option value="ADDS">AD DS</option><option value="ENTRA">Microsoft Entra ID</option></select></label>
+                            <label><span>Default VM size</span><input asp-for="HostPoolDeploymentDefaults[i].DefaultVmSize" /></label>
+                            <label><span>Default image version</span><input asp-for="HostPoolDeploymentDefaults[i].DefaultGalleryImageVersion" placeholder="Latest" /></label>
+                            <label><span>Session host resource group</span><input asp-for="HostPoolDeploymentDefaults[i].SessionHostResourceGroupName" /></label>
+                            <label><span>Gallery resource group</span><input asp-for="HostPoolDeploymentDefaults[i].GalleryResourceGroupName" /></label>
+                            <label><span>Compute Gallery</span><input asp-for="HostPoolDeploymentDefaults[i].GalleryName" /></label>
+                            <label><span>Image definition</span><input asp-for="HostPoolDeploymentDefaults[i].GalleryImageDefinitionName" /></label>
+                            <label><span>Network resource group</span><input asp-for="HostPoolDeploymentDefaults[i].VirtualNetworkResourceGroupName" /></label>
+                            <label><span>Virtual network</span><input asp-for="HostPoolDeploymentDefaults[i].VirtualNetworkName" /></label>
+                            <label><span>Subnet</span><input asp-for="HostPoolDeploymentDefaults[i].SubnetName" /></label>
+                            <label><span>Key Vault</span><input asp-for="HostPoolDeploymentDefaults[i].KeyVaultName" placeholder="Key Vault containing deployment secrets" /></label>
+                            <label><span>AD DS domain</span><input asp-for="HostPoolDeploymentDefaults[i].DomainFqdn" placeholder="Required when join type is ADDS" /></label>
+                            <label class="advanced-wide"><span>AD DS OU path</span><input asp-for="HostPoolDeploymentDefaults[i].DomainOuPath" placeholder="OU=...,DC=...,DC=..." /></label>
+                            <label class="advanced-toggle"><input asp-for="HostPoolDeploymentDefaults[i].TemporarilyDisableScalingDuringDeployment" /><span>Temporarily disable attached scaling plans</span></label>
+                            <label class="advanced-toggle"><input asp-for="HostPoolDeploymentDefaults[i].InstallRdsRoleOnServerOs" /><span>Install RDS role for Server OS images</span></label>
+                        </div>
+                    </article>
+                }
+            </div>
+            <div class="advanced-save-row"><button type="submit" class="primary-button">Save advanced deployment defaults</button><span class="muted">These values will form the parameter set handed to DeployAVDHosts.</span></div>
+        </form>
+    </section>
+}
+
+<style>
+.advanced-deployment-section{margin-top:22px}.advanced-heading{margin-bottom:14px}.advanced-heading h2{margin:4px 0 6px}.advanced-shared-card{min-height:auto;margin-bottom:14px}.host-pool-default-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.host-pool-default-card{min-height:auto}.host-pool-default-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}.host-pool-default-heading h3{margin:4px 0 0}.advanced-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}.advanced-fields label:not(.advanced-toggle){display:grid;gap:6px}.advanced-fields label>span{font-size:11px;color:var(--muted)}.advanced-fields input[type="text"],.advanced-fields input:not([type]),.advanced-fields select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);outline:none}.advanced-fields input:focus,.advanced-fields select:focus{border-color:var(--accent)}.advanced-wide{grid-column:1/-1}.advanced-toggle{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid var(--border);border-radius:7px}.advanced-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}@@media(max-width:1050px){.host-pool-default-grid{grid-template-columns:1fr}}@@media(max-width:700px){.advanced-fields{grid-template-columns:1fr}.advanced-wide{grid-column:auto}}
+</style>
