@@ -78,10 +78,6 @@ else
                             }
                         }
                         else if (cancelled) { <small class="muted">Deployment cancelled. Original session-host drain states were restored.</small> }
-                        @if (string.IsNullOrWhiteSpace(operation.AutomationJobId))
-                        {
-                            <form method="post" asp-page-handler="Clear" data-progress-label="Clearing deployment operation…" onsubmit="return confirm('Clear this deployment operation from AVD Manager? This removes the saved operation record only and does not change Azure resources or host drain state.');"><input type="hidden" name="operationId" value="@operation.Id" /><button class="secondary-button" type="submit">Clear operation</button></form>
-                        }
                     </div>
                 </article>
             }
