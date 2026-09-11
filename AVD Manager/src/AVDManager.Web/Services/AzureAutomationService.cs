@@ -144,7 +144,11 @@ public sealed class AzureAutomationService
                         ? streamTypeElement.GetString()
                         : null;
 
-                    if (!string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase))
+                    var supportedStream = string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase) ||
+                                          string.Equals(streamType, "Error", StringComparison.OrdinalIgnoreCase) ||
+                                          string.Equals(streamType, "Warning", StringComparison.OrdinalIgnoreCase) ||
+                                          string.Equals(streamType, "Verbose", StringComparison.OrdinalIgnoreCase);
+                    if (!supportedStream)
                         continue;
 
                     var text = properties.TryGetProperty("streamText", out var textElement)
@@ -166,7 +170,9 @@ public sealed class AzureAutomationService
                     lines.Add(new AutomationJobOutputLine(
                         streamId ?? Guid.NewGuid().ToString(),
                         time,
-                        text));
+                        string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase)
+                            ? text
+                            : $"[{streamType}] {text}"));
                 }
             }
 
