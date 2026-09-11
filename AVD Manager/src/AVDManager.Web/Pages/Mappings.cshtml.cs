@@ -37,6 +37,7 @@ public sealed class MappingsModel : PageModel
         await LoadAsync(SubscriptionId, cancellationToken);
         if (Result is null) return Page();
 
+        var existingConfiguration = await _configurationStore.GetAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var savedHostPools = HostPools.Select(mapping =>
         {
@@ -51,13 +52,21 @@ public sealed class MappingsModel : PageModel
                     network?.VirtualNetwork?.Name, network?.SubnetName, image?.GalleryName,
                     image?.GalleryResourceGroup, image?.ImageDefinitionName, image?.ImageVersionName ?? image?.ExactVersion ?? image?.Version);
             }).ToList();
+
+            var previousPool = existingConfiguration?.HostPools.FirstOrDefault(p => p.HostPoolId.Equals(mapping.HostPool.Id, StringComparison.OrdinalIgnoreCase));
             return new SavedHostPoolConfiguration(mapping.HostPool.Id, mapping.HostPool.Name, mapping.HostPool.Location,
                 new SavedResourceGroupDefaults(rg.Avd, rg.SessionHosts, rg.Network, rg.Gallery, rg.Storage, rg.Automation, rg.KeyVault),
-                mapping.ApplicationGroups.Select(a => a.Name).ToList(), sessions);
+                mapping.ApplicationGroups.Select(a => a.Name).ToList(), sessions, now, previousPool?.DeploymentDefaults);
         }).ToList();
 
-        await _configurationStore.SaveAsync(new EnvironmentConfiguration(Result.Subscription.SubscriptionId,
-            Result.Subscription.DisplayName, now, now, savedHostPools), cancellationToken);
+        await _configurationStore.SaveAsync(new EnvironmentConfiguration(
+            Result.Subscription.SubscriptionId,
+            Result.Subscription.DisplayName,
+            now,
+            now,
+            savedHostPools,
+            existingConfiguration?.Automation,
+            existingConfiguration?.DeploymentDefaults), cancellationToken);
         return RedirectToPage("/Index");
     }
 
