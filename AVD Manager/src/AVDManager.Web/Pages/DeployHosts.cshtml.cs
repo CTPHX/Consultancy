@@ -102,7 +102,10 @@ public sealed class DeployHostsModel : PageModel
             hostPoolResourceGroup, VmNamePrefix.Trim(), SessionHostCount, VmSize.Trim(), GalleryImageVersion.Trim(),
             ReplaceExisting, ReplaceExisting ? GracePeriodHours : 0, ReplaceExisting && ForceLogoffAtDeadline,
             ReplaceExisting ? now.AddHours(GracePeriodHours) : null, 0, null, null,
-            "Deployment workflow created. No Azure Automation job has been submitted.", null);
+            "Deployment workflow created. No Azure Automation job has been submitted.", null,
+            ReplaceExisting
+                ? pool.SessionHosts.Select(host => new DeploymentHostState(host.Name, host.AllowNewSession ?? true)).ToList()
+                : null);
 
         await _operationStore.AddAsync(operation, cancellationToken);
 
