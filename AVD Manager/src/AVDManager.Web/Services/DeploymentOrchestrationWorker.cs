@@ -55,7 +55,8 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
             .Where(operation =>
                 operation.Status.Equals("Starting", StringComparison.OrdinalIgnoreCase) ||
                 operation.Status.Equals("Draining", StringComparison.OrdinalIgnoreCase) ||
-                operation.Status.Equals("WaitingForSessions", StringComparison.OrdinalIgnoreCase))
+                operation.Status.Equals("WaitingForSessions", StringComparison.OrdinalIgnoreCase) ||
+                operation.Status.Equals("ReadyForAutomation", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         foreach (var operation in active)
@@ -73,6 +74,37 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
                         UpdatedAtUtc = DateTimeOffset.UtcNow,
                         Status = "ReadyForAutomation",
                         LastMessage = "Deployment request is ready for Azure Automation submission.",
+                        ErrorMessage = null
+                    }, cancellationToken);
+                    continue;
+                }
+
+                if (operation.Status.Equals("ReadyForAutomation", StringComparison.OrdinalIgnoreCase))
+                {
+                    var preSubmitSessions = await userSessions.ListByHostPoolAsync(
+                        operation.SubscriptionId,
+                        operation.HostPoolResourceGroup,
+                        operation.HostPoolName,
+                        cancellationToken);
+
+                    if (preSubmitSessions.Count > 0)
+                    {
+                        await _operationStore.UpdateAsync(operation with
+                        {
+                            UpdatedAtUtc = DateTimeOffset.UtcNow,
+                            ActiveSessionCount = preSubmitSessions.Count,
+                            Status = "WaitingForSessions",
+                            LastMessage = $"Pre-submit safety check detected {preSubmitSessions.Count} active user session(s). Azure Automation submission has been blocked and the operation has returned to waiting.",
+                            ErrorMessage = null
+                        }, cancellationToken);
+                        continue;
+                    }
+
+                    await _operationStore.UpdateAsync(operation with
+                    {
+                        UpdatedAtUtc = DateTimeOffset.UtcNow,
+                        ActiveSessionCount = 0,
+                        LastMessage = "Pre-submit safety check passed: no active user sessions remain. The operation is ready for Azure Automation submission.",
                         ErrorMessage = null
                     }, cancellationToken);
                     continue;
