@@ -83,4 +83,7 @@ public sealed record DeploymentOperation(
     string? AutomationJobId,
     string? AutomationJobStatus,
     string? LastMessage,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    IReadOnlyList<DeploymentHostState>? OriginalHostStates = null);
+
+public sealed record DeploymentHostState(string SessionHostName, bool AllowNewSession);
