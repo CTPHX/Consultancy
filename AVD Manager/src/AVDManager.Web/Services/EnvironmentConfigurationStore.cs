@@ -46,7 +46,8 @@ public sealed record EnvironmentConfiguration(
     DateTimeOffset SavedAtUtc,
     DateTimeOffset LastScannedAtUtc,
     IReadOnlyList<SavedHostPoolConfiguration> HostPools,
-    SavedAutomationConfiguration? Automation = null);
+    SavedAutomationConfiguration? Automation = null,
+    SavedDeploymentEnvironmentDefaults? DeploymentDefaults = null);
 
 public sealed record SavedAutomationConfiguration(
     string AutomationAccountId,
@@ -55,6 +56,16 @@ public sealed record SavedAutomationConfiguration(
     string DeploymentRunbookName,
     DateTimeOffset ValidatedAtUtc);
 
+public sealed record SavedDeploymentEnvironmentDefaults(
+    string LocalAdminUsernameSecretName,
+    string LocalAdminPasswordSecretName,
+    string DomainJoinUsernameSecretName,
+    string DomainJoinPasswordSecretName,
+    string? TenantId,
+    bool EnableIntuneEnrollment,
+    string? IntuneMdmId,
+    string EnvironmentTagValue);
+
 public sealed record SavedHostPoolConfiguration(
     string HostPoolId,
     string HostPoolName,
@@ -62,7 +73,25 @@ public sealed record SavedHostPoolConfiguration(
     SavedResourceGroupDefaults ResourceGroups,
     IReadOnlyList<string> ApplicationGroups,
     IReadOnlyList<SavedSessionHost> SessionHosts,
-    DateTimeOffset? LastScannedAtUtc = null);
+    DateTimeOffset? LastScannedAtUtc = null,
+    SavedHostPoolDeploymentDefaults? DeploymentDefaults = null);
+
+public sealed record SavedHostPoolDeploymentDefaults(
+    string JoinType,
+    string DefaultVmSize,
+    string DefaultGalleryImageVersion,
+    string? SessionHostResourceGroupName,
+    string? GalleryResourceGroupName,
+    string? GalleryName,
+    string? GalleryImageDefinitionName,
+    string? VirtualNetworkResourceGroupName,
+    string? VirtualNetworkName,
+    string? SubnetName,
+    string? KeyVaultName,
+    string? DomainFqdn,
+    string? DomainOuPath,
+    bool InstallRdsRoleOnServerOs,
+    bool TemporarilyDisableScalingDuringDeployment);
 
 public sealed record SavedResourceGroupDefaults(string? Avd, string? SessionHosts, string? Network, string? Gallery, string? Storage, string? Automation, string? KeyVault);
 
