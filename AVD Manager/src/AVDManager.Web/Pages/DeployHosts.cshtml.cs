@@ -16,19 +16,22 @@ public sealed class DeployHostsModel : PageModel
     private readonly HostPoolRefreshService _hostPoolRefresh;
     private readonly AvdSessionHostOperationsService _sessionHostOperations;
     private readonly AvdUserSessionService _userSessionService;
+    private readonly AzurePermissionReadinessService _permissionReadiness;
 
     public DeployHostsModel(
         EnvironmentConfigurationStore environmentStore,
         DeploymentOperationStore operationStore,
         HostPoolRefreshService hostPoolRefresh,
         AvdSessionHostOperationsService sessionHostOperations,
-        AvdUserSessionService userSessionService)
+        AvdUserSessionService userSessionService,
+        AzurePermissionReadinessService permissionReadiness)
     {
         _environmentStore = environmentStore;
         _operationStore = operationStore;
         _hostPoolRefresh = hostPoolRefresh;
         _sessionHostOperations = sessionHostOperations;
         _userSessionService = userSessionService;
+        _permissionReadiness = permissionReadiness;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
@@ -39,6 +42,7 @@ public sealed class DeployHostsModel : PageModel
         .Concat(Operations.Where(o => !ActiveStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase)).Take(10))
         .ToList();
     public SavedAutomationConfiguration? Automation => EnvironmentConfiguration?.Automation;
+    public IReadOnlyDictionary<string, DeploymentPermissionReadiness> PermissionReadiness { get; private set; } = new Dictionary<string, DeploymentPermissionReadiness>(StringComparer.OrdinalIgnoreCase);
 
     [BindProperty] public string HostPoolId { get; set; } = string.Empty;
     [BindProperty] public string VmNamePrefix { get; set; } = string.Empty;
@@ -352,6 +356,10 @@ public sealed class DeployHostsModel : PageModel
     {
         EnvironmentConfiguration = environment;
         HostPools = environment.HostPools.OrderBy(pool => pool.HostPoolName, StringComparer.OrdinalIgnoreCase).Select(BuildHostPoolOption).ToList();
+        var readiness = new Dictionary<string, DeploymentPermissionReadiness>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pool in environment.HostPools)
+            readiness[pool.HostPoolId] = await _permissionReadiness.CheckAsync(environment, pool, cancellationToken);
+        PermissionReadiness = readiness;
         Operations = await _operationStore.ListAsync(cancellationToken);
     }
 
