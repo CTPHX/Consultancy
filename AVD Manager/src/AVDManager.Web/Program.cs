@@ -47,6 +47,7 @@ builder.Services.AddScoped<AVDManager.Web.Services.AvdSessionHostOperationsServi
 builder.Services.AddScoped<AVDManager.Web.Services.AvdUserSessionService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureVmOperationsService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureAutomationService>();
+builder.Services.AddScoped<AVDManager.Web.Services.AzurePermissionReadinessService>();
 builder.Services.AddSingleton<AVDManager.Web.Services.EnvironmentConfigurationStore>();
 builder.Services.AddSingleton<AVDManager.Web.Services.DeploymentOperationStore>();
 builder.Services.AddHostedService<AVDManager.Web.Services.DeploymentOrchestrationWorker>();
