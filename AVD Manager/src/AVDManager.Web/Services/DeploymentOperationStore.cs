@@ -16,9 +16,21 @@ public sealed class DeploymentOperationStore
     public async Task<IReadOnlyList<DeploymentOperation>> ListAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
-        try { return (await ReadUnsafeAsync(cancellationToken)).OrderByDescending(x => x.CreatedAtUtc).ToList(); }
+        try
+        {
+            var items = await ReadUnsafeAsync(cancellationToken);
+            var cutoff = DateTimeOffset.UtcNow.AddHours(-48);
+            var removed = items.RemoveAll(x => IsTerminal(x.Status) && x.UpdatedAtUtc < cutoff);
+            if (removed > 0) await WriteUnsafeAsync(items, cancellationToken);
+            return items.OrderByDescending(x => x.CreatedAtUtc).ToList();
+        }
         finally { _gate.Release(); }
     }
+
+    private static bool IsTerminal(string status) =>
+        status.Equals("Completed", StringComparison.OrdinalIgnoreCase) ||
+        status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) ||
+        status.Equals("Failed", StringComparison.OrdinalIgnoreCase);
 
     public async Task AddAsync(DeploymentOperation operation, CancellationToken cancellationToken = default)
     {
