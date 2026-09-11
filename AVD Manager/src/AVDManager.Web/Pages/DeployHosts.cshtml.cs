@@ -16,22 +16,19 @@ public sealed class DeployHostsModel : PageModel
     private readonly HostPoolRefreshService _hostPoolRefresh;
     private readonly AvdSessionHostOperationsService _sessionHostOperations;
     private readonly AvdUserSessionService _userSessionService;
-    private readonly AzurePermissionReadinessService _permissionReadiness;
 
     public DeployHostsModel(
         EnvironmentConfigurationStore environmentStore,
         DeploymentOperationStore operationStore,
         HostPoolRefreshService hostPoolRefresh,
         AvdSessionHostOperationsService sessionHostOperations,
-        AvdUserSessionService userSessionService,
-        AzurePermissionReadinessService permissionReadiness)
+        AvdUserSessionService userSessionService)
     {
         _environmentStore = environmentStore;
         _operationStore = operationStore;
         _hostPoolRefresh = hostPoolRefresh;
         _sessionHostOperations = sessionHostOperations;
         _userSessionService = userSessionService;
-        _permissionReadiness = permissionReadiness;
     }
 
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
@@ -42,7 +39,8 @@ public sealed class DeployHostsModel : PageModel
         .Concat(Operations.Where(o => !ActiveStatuses.Contains(o.Status, StringComparer.OrdinalIgnoreCase)).Take(10))
         .ToList();
     public SavedAutomationConfiguration? Automation => EnvironmentConfiguration?.Automation;
-    public IReadOnlyDictionary<string, DeploymentPermissionReadiness> PermissionReadiness { get; private set; } = new Dictionary<string, DeploymentPermissionReadiness>(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyDictionary<string, DeploymentDefaultsReadiness> DeploymentDefaultsReadiness { get; private set; } =
+        new Dictionary<string, DeploymentDefaultsReadiness>(StringComparer.OrdinalIgnoreCase);
 
     [BindProperty] public string HostPoolId { get; set; } = string.Empty;
     [BindProperty] public string VmNamePrefix { get; set; } = string.Empty;
@@ -356,11 +354,65 @@ public sealed class DeployHostsModel : PageModel
     {
         EnvironmentConfiguration = environment;
         HostPools = environment.HostPools.OrderBy(pool => pool.HostPoolName, StringComparer.OrdinalIgnoreCase).Select(BuildHostPoolOption).ToList();
-        var readiness = new Dictionary<string, DeploymentPermissionReadiness>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pool in environment.HostPools)
-            readiness[pool.HostPoolId] = await _permissionReadiness.CheckAsync(environment, pool, cancellationToken);
-        PermissionReadiness = readiness;
+        DeploymentDefaultsReadiness = environment.HostPools.ToDictionary(
+            pool => pool.HostPoolId,
+            pool => BuildDeploymentDefaultsReadiness(environment.DeploymentDefaults, pool),
+            StringComparer.OrdinalIgnoreCase);
         Operations = await _operationStore.ListAsync(cancellationToken);
+    }
+
+    private static DeploymentDefaultsReadiness BuildDeploymentDefaultsReadiness(
+        SavedDeploymentEnvironmentDefaults? shared,
+        SavedHostPoolConfiguration pool)
+    {
+        var defaults = pool.DeploymentDefaults;
+        if (defaults is null)
+            return new DeploymentDefaultsReadiness(false, ["Host-pool advanced deployment defaults have not been saved."]);
+
+        var missing = new List<string>();
+
+        static void Require(List<string> items, string? value, string label)
+        {
+            if (string.IsNullOrWhiteSpace(value)) items.Add(label);
+        }
+
+        Require(missing, defaults.JoinType, "Join type");
+        Require(missing, defaults.DefaultVmSize, "Default VM size");
+        Require(missing, defaults.DefaultGalleryImageVersion, "Default image version");
+        Require(missing, defaults.SessionHostResourceGroupName, "Session host resource group");
+        Require(missing, defaults.GalleryResourceGroupName, "Gallery resource group");
+        Require(missing, defaults.GalleryName, "Compute Gallery");
+        Require(missing, defaults.GalleryImageDefinitionName, "Image definition");
+        Require(missing, defaults.VirtualNetworkResourceGroupName, "Network resource group");
+        Require(missing, defaults.VirtualNetworkName, "Virtual network");
+        Require(missing, defaults.SubnetName, "Subnet");
+        Require(missing, defaults.KeyVaultName, "Key Vault");
+
+        if (shared is null)
+        {
+            missing.Add("Environment-wide deployment defaults");
+        }
+        else
+        {
+            Require(missing, shared.LocalAdminUsernameSecretName, "Local admin username secret");
+            Require(missing, shared.LocalAdminPasswordSecretName, "Local admin password secret");
+
+            if (defaults.JoinType.Equals("ADDS", StringComparison.OrdinalIgnoreCase))
+            {
+                Require(missing, defaults.DomainFqdn, "AD DS domain");
+                Require(missing, defaults.DomainOuPath, "AD DS OU path");
+                Require(missing, shared.DomainJoinUsernameSecretName, "Domain join username secret");
+                Require(missing, shared.DomainJoinPasswordSecretName, "Domain join password secret");
+            }
+            else if (defaults.JoinType.Equals("ENTRA", StringComparison.OrdinalIgnoreCase))
+            {
+                Require(missing, shared.TenantId, "Entra tenant ID");
+                if (shared.EnableIntuneEnrollment)
+                    Require(missing, shared.IntuneMdmId, "Intune MDM ID");
+            }
+        }
+
+        return new DeploymentDefaultsReadiness(missing.Count == 0, missing);
     }
 
     private string? ValidateRequest()
@@ -405,3 +457,5 @@ public sealed record DeployHostPoolOption(string HostPoolId, string HostPoolName
     string SuggestedVmPrefix, string? AvdResourceGroup, string? SessionHostResourceGroup, string? NetworkResourceGroup,
     string? GalleryResourceGroup, string? AutomationResourceGroup, string? VnetName, string? SubnetName,
     string? GalleryName, string? ImageDefinition, string? ImageVersion);
+
+public sealed record DeploymentDefaultsReadiness(bool IsConfigured, IReadOnlyList<string> MissingFields);
