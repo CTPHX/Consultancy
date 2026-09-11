@@ -67,8 +67,15 @@ else
                         }
                         @if (active)
                         {
-                            <form method="post" asp-page-handler="Cancel" data-progress-label="Cancelling deployment…"><input type="hidden" name="operationId" value="@operation.Id" /><button class="secondary-button danger-button" type="submit">Cancel deployment</button></form>
-                            <small class="muted">Cancellation is available until the Azure Automation deployment job is submitted.</small>
+                            if (!operation.ReplaceExisting || operation.OriginalHostStates is { Count: > 0 })
+                            {
+                                <form method="post" asp-page-handler="Cancel" data-progress-label="Cancelling deployment…"><input type="hidden" name="operationId" value="@operation.Id" /><button class="secondary-button danger-button" type="submit">Cancel deployment</button></form>
+                                <small class="muted">Cancellation is available until the Azure Automation deployment job is submitted.</small>
+                            }
+                            else
+                            {
+                                <small class="muted">Legacy test operation: original drain state was not captured, so automatic cancellation is disabled.</small>
+                            }
                         }
                         else if (cancelled) { <small class="muted">Deployment cancelled. Original session-host drain states were restored.</small> }
                     </div>
