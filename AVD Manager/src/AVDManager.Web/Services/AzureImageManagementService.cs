@@ -119,7 +119,10 @@ public sealed class AzureImageManagementService
     private static AzureGalleryDefinition ToGalleryDefinition(JsonElement item)
     {
         var id = Get(item, "id");
-        return new(id, Get(item, "name"), ParentName(id, "galleries"), Get(item, "location"), ResourceGroup(id));
+        var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var galleryIndex = Array.FindIndex(parts, x => x.Equals("galleries", StringComparison.OrdinalIgnoreCase));
+        var galleryName = galleryIndex >= 0 && galleryIndex + 1 < parts.Length ? parts[galleryIndex + 1] : "";
+        return new(id, Get(item, "name"), galleryName, Get(item, "location"), ResourceGroup(id));
     }
 
     private static AzureGalleryVersion ToGalleryVersion(JsonElement item)
