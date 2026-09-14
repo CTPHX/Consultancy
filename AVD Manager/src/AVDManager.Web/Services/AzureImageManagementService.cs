@@ -125,7 +125,17 @@ public sealed class AzureImageManagementService
     private static AzureGalleryVersion ToGalleryVersion(JsonElement item)
     {
         var id = Get(item, "id");
-        return new(id, Get(item, "name"), ParentName(id, "galleries"), ChildName(id, "images"), Get(item, "location"), ResourceGroup(id));
+        // Resource IDs contain both ".../galleries/{gallery}/images/{definition}/versions/{version}".
+        // ParentName("images") can accidentally match the resource-group name (for example
+        // "rg-avd-images-uks"), so parse the gallery/definition pair relative to the galleries segment.
+        var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var galleryIndex = Array.FindIndex(parts, x => x.Equals("galleries", StringComparison.OrdinalIgnoreCase));
+        var galleryName = galleryIndex >= 0 && galleryIndex + 1 < parts.Length ? parts[galleryIndex + 1] : "";
+        var definitionName = galleryIndex >= 0 && galleryIndex + 3 < parts.Length &&
+                             parts[galleryIndex + 2].Equals("images", StringComparison.OrdinalIgnoreCase)
+            ? parts[galleryIndex + 3]
+            : "";
+        return new(id, Get(item, "name"), galleryName, definitionName, Get(item, "location"), ResourceGroup(id));
     }
 
     private static string Get(JsonElement item, string name) => item.TryGetProperty(name, out var value) ? value.GetString() ?? "" : "";
