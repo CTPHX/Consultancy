@@ -67,7 +67,7 @@ else if (Model.Discovery is not null)
     }
 </article>
 </div>
-<script type="application/json" id="imageVersions">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Discovery.Versions.Select(v => new { v.GalleryName, v.DefinitionName, v.Name })))</script>
+<script type="application/json" id="imageVersions">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Discovery.Versions.Select(v => new { GalleryName = v.GalleryName, DefinitionName = v.DefinitionName, Name = v.Name, Id = v.Id })))</script>
 }
 @section Scripts {
 <script>
