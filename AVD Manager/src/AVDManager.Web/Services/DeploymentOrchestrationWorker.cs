@@ -245,16 +245,33 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
         var config = environment.Automation
             ?? throw new InvalidOperationException("Azure Automation configuration is unavailable.");
 
+        // Job status is authoritative and must be persisted even if stream retrieval
+        // temporarily fails. Output is useful, but it must never be able to freeze a
+        // deployment in Running after Azure Automation has already completed it.
         var job = await automation.GetJobAsync(
             operation.SubscriptionId, config.ResourceGroupName, config.AutomationAccountName,
             operation.AutomationJobId!, cancellationToken);
-        var output = await automation.GetJobOutputAsync(
-            operation.SubscriptionId, config.ResourceGroupName, config.AutomationAccountName,
-            operation.AutomationJobId!, cancellationToken);
 
-        var persistedOutput = output
-            .Select(line => new DeploymentAutomationOutputLine(line.StreamId, line.TimeUtc, line.Text))
-            .ToList();
+        IReadOnlyList<DeploymentAutomationOutputLine> persistedOutput =
+            operation.AutomationOutput ?? [];
+
+        try
+        {
+            var output = await automation.GetJobOutputAsync(
+                operation.SubscriptionId, config.ResourceGroupName, config.AutomationAccountName,
+                operation.AutomationJobId!, cancellationToken);
+
+            persistedOutput = output
+                .Select(line => new DeploymentAutomationOutputLine(line.StreamId, line.TimeUtc, line.Text))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not refresh output streams for Azure Automation job {AutomationJobId}. Job status will still be persisted.",
+                operation.AutomationJobId);
+        }
 
         var terminal = job.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase) ||
                        job.Status.Equals("Failed", StringComparison.OrdinalIgnoreCase) ||
