@@ -84,9 +84,9 @@ else if (Model.Discovery is not null)
  function refreshVersion(){
    const g=gallery.selectedOptions[0]?.dataset.name||'', d=definition.selectedOptions[0]?.dataset.name||'';
    const matches=versions.filter(x=>
-     (x.galleryName??x.GalleryName)===g &&
-     (x.definitionName??x.DefinitionName)===d
-   ).map(x=>x.name??x.Name);
+     (x.GalleryName??x.galleryName)===g &&
+     (x.DefinitionName??x.definitionName)===d
+   ).map(x=>x.Name??x.name);
    matches.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
    const latest=matches.length?matches[matches.length-1]:null;
    document.getElementById('currentVersion').textContent=latest||'No versions';
