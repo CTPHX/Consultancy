@@ -21,7 +21,15 @@ public sealed class AzureImageManagementService
         var vms = await ListAsync(subscriptionId, "Microsoft.Compute/virtualMachines", "2024-07-01", cancellationToken);
         var galleries = await ListAsync(subscriptionId, "Microsoft.Compute/galleries", "2023-07-03", cancellationToken);
         var definitions = await ListAsync(subscriptionId, "Microsoft.Compute/galleries/images", "2023-07-03", cancellationToken);
-        var versions = await ListAsync(subscriptionId, "Microsoft.Compute/galleries/images/versions", "2023-07-03", cancellationToken);
+        // Gallery image versions are child resources and are not reliably returned by the generic
+        // subscription /resources query. Enumerate each discovered image definition directly.
+        var versions = new List<JsonElement>();
+        foreach (var definition in definitions)
+        {
+            var definitionId = Get(definition, "id");
+            if (!string.IsNullOrWhiteSpace(definitionId))
+                versions.AddRange(await ListChildResourcesAsync(definitionId, "versions", "2023-07-03", cancellationToken));
+        }
         var vnets = await ListAsync(subscriptionId, "Microsoft.Network/virtualNetworks", "2024-05-01", cancellationToken);
 
         return new ImageManagementDiscovery(
@@ -44,6 +52,22 @@ public sealed class AzureImageManagementService
                 results.AddRange(values.EnumerateArray().Select(x => x.Clone()));
             url = doc.RootElement.TryGetProperty("nextLink", out var next) ? next.GetString() : null;
         }
+        return results;
+    }
+
+    private async Task<List<JsonElement>> ListChildResourcesAsync(string parentResourceId, string childType, string apiVersion, CancellationToken cancellationToken)
+    {
+        var results = new List<JsonElement>();
+        string? url = $"https://management.azure.com{parentResourceId}/{childType}?api-version={apiVersion}";
+
+        while (!string.IsNullOrWhiteSpace(url))
+        {
+            using var doc = await GetAsync(url, cancellationToken);
+            if (doc.RootElement.TryGetProperty("value", out var values))
+                results.AddRange(values.EnumerateArray().Select(x => x.Clone()));
+            url = doc.RootElement.TryGetProperty("nextLink", out var next) ? next.GetString() : null;
+        }
+
         return results;
     }
 
