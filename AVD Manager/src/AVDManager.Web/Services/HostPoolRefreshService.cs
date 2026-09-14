@@ -177,7 +177,7 @@ public sealed class HostPoolRefreshService
             // authoritative even if one of the enrichment calls fails.
             try
             {
-                vm = await GetVirtualMachineAsync(snapshot.ResourceId, cancellationToken);
+                vm = await GetVirtualMachineAsync(snapshot.ResourceId!, cancellationToken);
                 if (vm is not null)
                 {
                     try
