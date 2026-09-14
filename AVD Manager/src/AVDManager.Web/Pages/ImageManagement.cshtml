@@ -1,0 +1,100 @@
+@page
+@model AVDManager.Web.Pages.ImageManagementModel
+@{
+    ViewData["Title"] = "Image Management";
+}
+<div class="page-heading"><div><h1>Image Management</h1><p>Build a new Azure Compute Gallery image version from a selected gold image VM.</p></div></div>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="panel"><p class="status-bad">@Model.ErrorMessage</p></div> }
+@if (Model.Environment is null) { <div class="panel"><p class="muted">Configure an Azure environment before building images.</p></div> }
+else if (Model.Discovery is not null)
+{
+<div class="deploy-grid">
+<article class="panel">
+    <span class="eyebrow">IMAGE BUILD REQUEST</span>
+    <h2>Build gold image</h2>
+    <p class="muted">Choose the source gold VM and the gallery definition that will receive the captured image.</p>
+    <form method="post" id="imageBuildForm">
+        <label class="field-label">Gold image VM</label>
+        <select asp-for="Build.GoldVmId" id="goldVm" required>
+            <option value="">Select a gold image VM</option>
+            @foreach (var vm in Model.Discovery.VirtualMachines) { <option value="@vm.Id" data-location="@vm.Location" data-rg="@vm.ResourceGroup">@vm.Name — @vm.ResourceGroup</option> }
+        </select>
+
+        <label class="field-label">Target Compute Gallery</label>
+        <select asp-for="Build.GalleryId" id="gallery" required>
+            <option value="">Select a gallery</option>
+            @foreach (var g in Model.Discovery.Galleries) { <option value="@g.Id" data-name="@g.Name" data-rg="@g.ResourceGroup">@g.Name — @g.ResourceGroup</option> }
+        </select>
+
+        <label class="field-label">Image definition</label>
+        <select asp-for="Build.ImageDefinitionId" id="definition" required>
+            <option value="">Select an image definition</option>
+            @foreach (var d in Model.Discovery.Definitions) { <option value="@d.Id" data-gallery="@d.GalleryName" data-name="@d.Name">@d.Name</option> }
+        </select>
+
+        <div class="image-version-summary">
+            <div><span class="eyebrow">CURRENT LATEST</span><strong id="currentVersion">—</strong></div>
+            <div><span class="eyebrow">PROPOSED VERSION</span><strong id="proposedVersion">—</strong></div>
+        </div>
+        <label class="field-label">New image version</label>
+        <input asp-for="Build.ImageVersion" id="imageVersion" placeholder="0.0.1" required />
+
+        <label class="field-label">Temporary VM network</label>
+        <select asp-for="Build.VirtualNetworkId" id="vnet" required>
+            <option value="">Select a virtual network</option>
+            @foreach (var v in Model.Discovery.VirtualNetworks) { <option value="@v.Id">@v.Name — @v.ResourceGroup</option> }
+        </select>
+        <label class="field-label">Subnet name</label>
+        <input asp-for="Build.SubnetName" placeholder="snet-avd-internal-uks" required />
+
+        <details class="image-advanced"><summary>Advanced build options</summary>
+            <label class="field-label">Temporary VM size</label><input asp-for="Build.TempVmSize" />
+            <label class="field-label">Replica count</label><input asp-for="Build.ReplicaCount" type="number" min="1" max="10" />
+            <label class="field-label">Target regions</label><input asp-for="Build.TargetRegions" placeholder="uksouth" />
+            <label class="setting-row"><input asp-for="Build.ExcludeFromLatest" /><span><b>Exclude from latest</b><small>Do not return this version when consumers request Latest.</small></span></label>
+        </details>
+
+        <div class="notice warning"><b>Review stage only</b><br />The image-build form is wired to discovered Azure resources. Automation submission will be enabled after the runbook is published and validated.</div>
+        <button type="button" class="primary-button" disabled>Review image build</button>
+    </form>
+</article>
+<article class="panel">
+    <span class="eyebrow">DISCOVERED IMAGE ESTATE</span><h2>Azure Compute Gallery</h2>
+    <p class="muted">@Model.Discovery.Galleries.Count gallery(s) · @Model.Discovery.Definitions.Count definition(s) · @Model.Discovery.Versions.Count version(s)</p>
+    @foreach (var g in Model.Discovery.Galleries) {
+      <div class="setting-row"><span><b>@g.Name</b><small>@g.ResourceGroup · @g.Location</small></span></div>
+    }
+</article>
+</div>
+<script type="application/json" id="imageVersions">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Discovery.Versions.Select(v => new { v.GalleryName, v.DefinitionName, v.Name })))</script>
+}
+@section Scripts {
+<script>
+(() => {
+ const gallery=document.getElementById('gallery'), definition=document.getElementById('definition'), version=document.getElementById('imageVersion');
+ if(!gallery||!definition) return;
+ const versions=JSON.parse(document.getElementById('imageVersions').textContent);
+ function refreshDefinitions(){
+   const name=gallery.selectedOptions[0]?.dataset.name||'';
+   [...definition.options].forEach((o,i)=>{ if(i) o.hidden=o.dataset.gallery!==name; });
+   if(definition.selectedOptions[0]?.hidden) definition.value='';
+   refreshVersion();
+ }
+ function refreshVersion(){
+   const g=gallery.selectedOptions[0]?.dataset.name||'', d=definition.selectedOptions[0]?.dataset.name||'';
+   const matches=versions.filter(x=>x.GalleryName===g&&x.DefinitionName===d).map(x=>x.Name);
+   matches.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+   const latest=matches.length?matches[matches.length-1]:null;
+   document.getElementById('currentVersion').textContent=latest||'No versions';
+   let next='0.0.1';
+   if(latest){ const p=latest.split('.').map(Number); next=[p[0]||0,p[1]||0,(p[2]||0)+1].join('.'); }
+   document.getElementById('proposedVersion').textContent=next; version.value=next;
+ }
+ gallery.addEventListener('change',refreshDefinitions); definition.addEventListener('change',refreshVersion); refreshDefinitions();
+})();
+</script>
+}
+<style>
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
+</style>
