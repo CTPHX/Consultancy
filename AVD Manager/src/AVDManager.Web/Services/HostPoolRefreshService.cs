@@ -165,11 +165,37 @@ public sealed class HostPoolRefreshService
 
         if (!string.IsNullOrWhiteSpace(snapshot.ResourceId))
         {
-            vm = await GetVirtualMachineAsync(snapshot.ResourceId, cancellationToken);
-            if (vm is not null)
+            // VM/network/image enrichment is optional. AVD can contain session hosts whose
+            // backing compute resource cannot be resolved through the normal Azure VM path
+            // (for example hybrid/Arc-backed hosts). Do not fail the host-pool refresh when
+            // enrichment is unavailable; the AVD session-host state remains authoritative.
+            try
             {
-                (nicName, vnetName, subnetName) = await GetPrimaryNetworkAsync(vm.Id, cancellationToken);
-                image = await _imageDiscovery.DiscoverAsync(vm, cancellationToken);
+                vm = await GetVirtualMachineAsync(snapshot.ResourceId, cancellationToken);
+                if (vm is not null)
+                {
+                    try
+                    {
+                        (nicName, vnetName, subnetName) = await GetPrimaryNetworkAsync(vm.Id, cancellationToken);
+                    }
+                    catch
+                    {
+                        // Keep the host and VM details even when network enrichment is unavailable.
+                    }
+
+                    try
+                    {
+                        image = await _imageDiscovery.DiscoverAsync(vm, cancellationToken);
+                    }
+                    catch
+                    {
+                        // Keep the host and VM details even when image enrichment is unavailable.
+                    }
+                }
+            }
+            catch
+            {
+                // AVD discovery succeeded, so retain the session host without Azure VM enrichment.
             }
         }
 
