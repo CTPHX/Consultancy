@@ -25,7 +25,7 @@ public sealed class AzureImageManagementService
         var vnets = await ListAsync(subscriptionId, "Microsoft.Network/virtualNetworks", "2024-05-01", cancellationToken);
 
         return new ImageManagementDiscovery(
-            vms.Select(ToResource).OrderBy(x => x.Name).ToList(),
+            vms.Where(IsGoldImageVm).Select(ToResource).OrderBy(x => x.Name).ToList(),
             galleries.Select(ToResource).OrderBy(x => x.Name).ToList(),
             definitions.Select(ToGalleryDefinition).OrderBy(x => x.GalleryName).ThenBy(x => x.Name).ToList(),
             versions.Select(ToGalleryVersion).OrderBy(x => x.GalleryName).ThenBy(x => x.DefinitionName).ThenByDescending(x => ParseVersion(x.Name)).ToList(),
@@ -72,6 +72,21 @@ public sealed class AzureImageManagementService
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Azure Resource Manager returned {(int)response.StatusCode}: {body}");
         return JsonDocument.Parse(body);
+    }
+
+    private static bool IsGoldImageVm(JsonElement item)
+    {
+        if (!item.TryGetProperty("tags", out var tags) || tags.ValueKind != JsonValueKind.Object)
+            return false;
+
+        foreach (var tag in tags.EnumerateObject())
+        {
+            if (tag.Name.Equals("AVDManager", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(tag.Value.GetString(), "GoldImage", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private static AzureImageResource ToResource(JsonElement item) =>
