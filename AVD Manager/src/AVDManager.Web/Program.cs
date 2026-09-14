@@ -41,6 +41,7 @@ builder.Services.AddSingleton<TokenCredential>(sp =>
 
 builder.Services.AddScoped<AVDManager.Web.Services.AzureDiscoveryService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AzureVmImageDiscoveryService>();
+builder.Services.AddScoped<AVDManager.Web.Services.AzureImageManagementService>();
 builder.Services.AddScoped<AVDManager.Web.Services.HostPoolRefreshService>();
 builder.Services.AddScoped<AVDManager.Web.Services.HostPoolDetailService>();
 builder.Services.AddScoped<AVDManager.Web.Services.AvdSessionHostOperationsService>();
