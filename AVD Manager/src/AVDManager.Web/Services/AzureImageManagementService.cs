@@ -125,7 +125,7 @@ public sealed class AzureImageManagementService
     private static AzureGalleryVersion ToGalleryVersion(JsonElement item)
     {
         var id = Get(item, "id");
-        return new(id, Get(item, "name"), ParentName(id, "galleries"), ParentName(id, "images"), Get(item, "location"), ResourceGroup(id));
+        return new(id, Get(item, "name"), ParentName(id, "galleries"), ChildName(id, "images"), Get(item, "location"), ResourceGroup(id));
     }
 
     private static string Get(JsonElement item, string name) => item.TryGetProperty(name, out var value) ? value.GetString() ?? "" : "";
@@ -139,6 +139,12 @@ public sealed class AzureImageManagementService
     {
         var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var i = Array.FindIndex(parts, x => x.Equals(segment, StringComparison.OrdinalIgnoreCase));
+        return i >= 0 && i + 1 < parts.Length ? parts[i + 1] : "";
+    }
+    private static string ChildName(string id, string segment)
+    {
+        var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var i = Array.FindLastIndex(parts, x => x.Equals(segment, StringComparison.OrdinalIgnoreCase));
         return i >= 0 && i + 1 < parts.Length ? parts[i + 1] : "";
     }
     private static Version ParseVersion(string value) => Version.TryParse(value, out var v) ? v : new Version(0,0,0);
