@@ -641,6 +641,43 @@ catch {
 }
 "@
 
+        # Invoke-AzVMRunCommand requires the VM to be running. Replacement
+        # deployments may encounter hosts that are already stopped/deallocated, so
+        # temporarily start the VM for AD object cleanup before deleting it.
+        $vmStatus = Get-AzVM `
+            -ResourceGroupName $SessionHostResourceGroupName `
+            -Name $VmName `
+            -Status `
+            -ErrorAction Stop
+
+        $powerState = @($vmStatus.Statuses | Where-Object { $_.Code -like 'PowerState/*' } | Select-Object -First 1).Code
+        if ($powerState -ne 'PowerState/running') {
+            Write-Log -Level 'INFO' -Component 'ADDS' -Message ("VM '{0}' is not running ({1}). Temporarily starting it so the AD computer object can be removed before deletion." -f $VmName, $powerState)
+
+            Start-AzVM `
+                -ResourceGroupName $SessionHostResourceGroupName `
+                -Name $VmName `
+                -ErrorAction Stop | Out-Null
+
+            $deadline = (Get-Date).AddMinutes(10)
+            do {
+                Start-Sleep -Seconds 10
+                $vmStatus = Get-AzVM `
+                    -ResourceGroupName $SessionHostResourceGroupName `
+                    -Name $VmName `
+                    -Status `
+                    -ErrorAction Stop
+                $powerState = @($vmStatus.Statuses | Where-Object { $_.Code -like 'PowerState/*' } | Select-Object -First 1).Code
+            }
+            while ($powerState -ne 'PowerState/running' -and (Get-Date) -lt $deadline)
+
+            if ($powerState -ne 'PowerState/running') {
+                throw "VM '$VmName' did not reach a running state within 10 minutes, so AD computer object cleanup could not be performed."
+            }
+
+            Write-Log -Level 'SUCCESS' -Component 'ADDS' -Message "VM '$VmName' is running. Continuing AD computer object cleanup."
+        }
+
         $cleanupResult = Invoke-AzVMRunCommand `
             -ResourceGroupName $SessionHostResourceGroupName `
             -VMName $VmName `
