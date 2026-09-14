@@ -34,11 +34,35 @@ public sealed class SessionHostsModel : PageModel
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
-        EnvironmentConfiguration = await _environmentStore.GetAsync(cancellationToken);
-        if (EnvironmentConfiguration is null)
+        var environment = await _environmentStore.GetAsync(cancellationToken);
+        if (environment is null)
             return RedirectToPage("/Onboarding");
 
-        BuildViewModel(EnvironmentConfiguration);
+        // Opening Host Pools should reconcile the saved host-pool state immediately,
+        // rather than waiting for the 30-second live check. Refresh each known host pool
+        // so added/removed hosts, availability, drain mode and session counts are current.
+        var refreshedEnvironment = environment;
+        var refreshErrors = new List<string>();
+
+        foreach (var pool in environment.HostPools)
+        {
+            try
+            {
+                refreshedEnvironment = await _hostPoolRefresh.RefreshAsync(
+                    refreshedEnvironment,
+                    pool.HostPoolId,
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                refreshErrors.Add($"{pool.HostPoolName}: {ex.Message}");
+            }
+        }
+
+        if (refreshErrors.Count > 0)
+            ErrorMessage = $"One or more host pools could not be refreshed: {string.Join(" | ", refreshErrors)}";
+
+        BuildViewModel(refreshedEnvironment);
         return Page();
     }
 
