@@ -227,6 +227,7 @@ public sealed class DeploymentOrchestrationWorker : BackgroundService
             Status = "Submitted",
             AutomationJobId = submission.JobId,
             AutomationJobStatus = submission.Status,
+            AutomationSubmittedAtUtc = DateTimeOffset.UtcNow,
             ActiveSessionCount = 0,
             LastMessage = $"Azure Automation job {submission.JobId} was submitted successfully.",
             ErrorMessage = null,
