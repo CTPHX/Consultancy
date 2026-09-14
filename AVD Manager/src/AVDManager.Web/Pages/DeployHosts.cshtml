@@ -93,7 +93,7 @@ else
                         <article class="panel deployment-operation-card">
                             <div class="operation-card-heading">
                                 <div><span class="eyebrow">HOST POOL</span><h3>@operation.HostPoolName</h3><p class="muted">@operation.VmNamePrefix · @operation.SessionHostCount host(s)</p></div>
-                                <span class="status-pill @(good ? "status-good" : failed ? "status-bad" : active ? "status-neutral" : "status-neutral")">@operation.Status@if (!string.IsNullOrWhiteSpace(operation.AutomationJobId) && active){<span class="deployment-elapsed" data-started="@operation.UpdatedAtUtc.ToString("O")"></span>}</span>
+                                <span class="status-pill @(good ? "status-good" : failed ? "status-bad" : active ? "status-neutral" : "status-neutral")">@operation.Status@if (!string.IsNullOrWhiteSpace(operation.AutomationJobId) && active){<span class="deployment-elapsed" data-started="@((operation.AutomationSubmittedAtUtc ?? operation.CreatedAtUtc).ToString("O"))"></span>}</span>
                             </div>
                             <div class="operation-detail-grid">
                                 <div><span>Current stage</span><strong>@operation.Status</strong></div>
