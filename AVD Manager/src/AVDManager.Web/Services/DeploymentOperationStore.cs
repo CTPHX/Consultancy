@@ -97,7 +97,8 @@ public sealed record DeploymentOperation(
     string? LastMessage,
     string? ErrorMessage,
     IReadOnlyList<DeploymentHostState>? OriginalHostStates = null,
-    IReadOnlyList<DeploymentAutomationOutputLine>? AutomationOutput = null);
+    IReadOnlyList<DeploymentAutomationOutputLine>? AutomationOutput = null,
+    DateTimeOffset? AutomationSubmittedAtUtc = null);
 
 public sealed record DeploymentHostState(string SessionHostName, bool AllowNewSession);
 public sealed record DeploymentAutomationOutputLine(string StreamId, DateTimeOffset? TimeUtc, string Text);
