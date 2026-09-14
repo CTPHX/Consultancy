@@ -18,13 +18,13 @@ else if (Model.Discovery is not null)
         <label class="field-label">Gold image VM</label>
         <select asp-for="Build.GoldVmId" id="goldVm" required>
             <option value="">Select a gold image VM</option>
-            @foreach (var vm in Model.Discovery.VirtualMachines) { <option value="@vm.Id" data-location="@vm.Location" data-rg="@vm.ResourceGroup">@vm.Name — @vm.ResourceGroup</option> }
+            @foreach (var vm in Model.Discovery.VirtualMachines) { <option value="@vm.Id" data-location="@vm.Location" data-rg="@vm.ResourceGroup">@vm.Name</option> }
         </select>
 
         <label class="field-label">Target Compute Gallery</label>
         <select asp-for="Build.GalleryId" id="gallery" required>
             <option value="">Select a gallery</option>
-            @foreach (var g in Model.Discovery.Galleries) { <option value="@g.Id" data-name="@g.Name" data-rg="@g.ResourceGroup">@g.Name — @g.ResourceGroup</option> }
+            @foreach (var g in Model.Discovery.Galleries) { <option value="@g.Id" data-name="@g.Name" data-rg="@g.ResourceGroup">@g.Name</option> }
         </select>
 
         <label class="field-label">Image definition</label>
