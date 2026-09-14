@@ -1153,6 +1153,10 @@ function Get-ScalingPlansAttachedToHostPool {
     }
 
     foreach ($resource in $scalingPlanResources) {
+        if ([string]::IsNullOrWhiteSpace($resource.Name) -or [string]::IsNullOrWhiteSpace($resource.ResourceGroupName)) {
+            continue
+        }
+
         try {
             $plan = Get-AzWvdScalingPlan `
                 -ResourceGroupName $resource.ResourceGroupName `
@@ -1208,9 +1212,13 @@ function Set-ScalingPlanHostPoolReferenceState {
             $foundReference = $true
         }
 
-        $updatedReferences += New-AzWvdHostPoolReference `
-            -HostPoolArmPath $reference.HostPoolArmPath `
-            -ScalingPlanEnabled:$referenceEnabled
+        # Update-AzWvdScalingPlan accepts hashtables for HostPoolReference entries.
+        # Do not use New-AzWvdHostPoolReference here; that helper cmdlet is not
+        # available in all Az.DesktopVirtualization versions used by Automation.
+        $updatedReferences += @{
+            HostPoolArmPath   = $reference.HostPoolArmPath
+            ScalingPlanEnabled = $referenceEnabled
+        }
     }
 
     if (-not $foundReference) {
