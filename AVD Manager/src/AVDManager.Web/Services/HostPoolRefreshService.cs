@@ -163,12 +163,18 @@ public sealed class HostPoolRefreshService
         string? subnetName = null;
         AzureVmImageReference? image = null;
 
-        if (!string.IsNullOrWhiteSpace(snapshot.ResourceId))
+        // Only normal Azure VMs can use the Microsoft.Compute enrichment path.
+        // Hybrid/Arc session hosts expose Microsoft.HybridCompute/machines resource IDs;
+        // sending those IDs to the Compute VM API produces NoRegisteredProviderFound.
+        var isAzureVm = !string.IsNullOrWhiteSpace(snapshot.ResourceId) &&
+                        snapshot.ResourceId.Contains(
+                            "/providers/Microsoft.Compute/virtualMachines/",
+                            StringComparison.OrdinalIgnoreCase);
+
+        if (isAzureVm)
         {
-            // VM/network/image enrichment is optional. AVD can contain session hosts whose
-            // backing compute resource cannot be resolved through the normal Azure VM path
-            // (for example hybrid/Arc-backed hosts). Do not fail the host-pool refresh when
-            // enrichment is unavailable; the AVD session-host state remains authoritative.
+            // VM/network/image enrichment is optional. AVD session-host state remains
+            // authoritative even if one of the enrichment calls fails.
             try
             {
                 vm = await GetVirtualMachineAsync(snapshot.ResourceId, cancellationToken);
