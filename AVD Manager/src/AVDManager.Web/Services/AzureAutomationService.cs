@@ -144,11 +144,10 @@ public sealed class AzureAutomationService
                         ? streamTypeElement.GetString()
                         : null;
 
-                    var supportedStream = string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase) ||
-                                          string.Equals(streamType, "Error", StringComparison.OrdinalIgnoreCase) ||
-                                          string.Equals(streamType, "Warning", StringComparison.OrdinalIgnoreCase) ||
-                                          string.Equals(streamType, "Verbose", StringComparison.OrdinalIgnoreCase);
-                    if (!supportedStream)
+                    // Deploy Hosts should mirror Azure Automation's Output pane.
+                    // Ignore Verbose/Warning/Error stream noise here; job failures are
+                    // already surfaced separately from the Azure job status/exception.
+                    if (!string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase))
                         continue;
 
                     var streamId = properties.TryGetProperty("jobStreamId", out var streamIdElement)
@@ -184,9 +183,7 @@ public sealed class AzureAutomationService
                     lines.Add(new AutomationJobOutputLine(
                         streamId,
                         time,
-                        string.Equals(streamType, "Output", StringComparison.OrdinalIgnoreCase)
-                            ? text
-                            : $"[{streamType}] {text}"));
+                        text));
                 }
             }
 
