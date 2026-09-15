@@ -71,6 +71,24 @@ public sealed class AzureImageManagementService
         return results;
     }
 
+    public async Task<IReadOnlyList<string>> GetVmSizesAsync(string subscriptionId, string location, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(location)) return [];
+        using var doc = await GetAsync($"https://management.azure.com/subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{Uri.EscapeDataString(location)}/vmSizes?api-version=2024-07-01", cancellationToken);
+        if (!doc.RootElement.TryGetProperty("value", out var values)) return [];
+        return values.EnumerateArray().Select(x => Get(x, "name")).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public async Task<IReadOnlyList<AzureRegionOption>> GetRegionsAsync(string subscriptionId, CancellationToken cancellationToken = default)
+    {
+        using var doc = await GetAsync($"https://management.azure.com/subscriptions/{subscriptionId}/locations?api-version=2022-12-01", cancellationToken);
+        if (!doc.RootElement.TryGetProperty("value", out var values)) return [];
+        return values.EnumerateArray()
+            .Select(x => new AzureRegionOption(Get(x, "name"), x.TryGetProperty("displayName", out var d) ? d.GetString() ?? Get(x, "name") : Get(x, "name")))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public async Task<IReadOnlyList<AzureSubnetOption>> GetSubnetsAsync(string vnetId, CancellationToken cancellationToken = default)
     {
         using var doc = await GetAsync($"https://management.azure.com{vnetId}?api-version=2024-05-01", cancellationToken);
@@ -180,3 +198,5 @@ public sealed record AzureImageResource(string Id, string Name, string Location,
 public sealed record AzureGalleryDefinition(string Id, string Name, string GalleryName, string Location, string ResourceGroup);
 public sealed record AzureGalleryVersion(string Id, string Name, string GalleryName, string DefinitionName, string Location, string ResourceGroup);
 public sealed record AzureSubnetOption(string Id, string Name);
+
+public sealed record AzureRegionOption(string Name, string DisplayName);
