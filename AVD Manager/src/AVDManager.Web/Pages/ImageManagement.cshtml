@@ -66,25 +66,6 @@ else if (Model.Discovery is not null)
       <div class="setting-row"><span><b>@g.Name</b><small>@g.ResourceGroup · @g.Location</small></span></div>
     }
 
-    <details class="image-debug">
-        <summary>Discovered version diagnostic</summary>
-        @if (Model.Discovery.Versions.Count == 0)
-        {
-            <p class="muted">No gallery image versions were returned by Azure.</p>
-        }
-        else
-        {
-            @foreach (var v in Model.Discovery.Versions)
-            {
-                <div class="image-debug-item">
-                    <div><span>Gallery</span><strong>@v.GalleryName</strong></div>
-                    <div><span>Definition</span><strong>@v.DefinitionName</strong></div>
-                    <div><span>Version</span><strong>@v.Name</strong></div>
-                    <div><span>Resource ID</span><code>@v.Id</code></div>
-                </div>
-            }
-        }
-    </details>
 </article>
 </div>
 <script type="application/json" id="imageVersions">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Discovery.Versions.Select(v => new { GalleryName = v.GalleryName, DefinitionName = v.DefinitionName, Name = v.Name, Id = v.Id })))</script>
