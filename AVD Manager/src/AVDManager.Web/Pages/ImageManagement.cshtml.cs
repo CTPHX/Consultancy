@@ -23,6 +23,7 @@ public sealed class ImageManagementModel : PageModel
     public string? ErrorMessage { get; private set; }
     public IReadOnlyList<string> VmSizes { get; private set; } = [];
     public IReadOnlyList<AzureRegionOption> Regions { get; private set; } = [];
+    public ImageBuildReview? Review { get; private set; }
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
@@ -44,6 +45,50 @@ public sealed class ImageManagementModel : PageModel
             }
         }
         catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+
+    public async Task<IActionResult> OnPostReviewAsync(CancellationToken cancellationToken)
+    {
+        Environment = await _store.GetAsync(cancellationToken);
+        if (Environment is null) return Page();
+
+        try
+        {
+            Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);
+            Regions = await _images.GetRegionsAsync(Environment.SubscriptionId, cancellationToken);
+
+            var vm = Discovery.VirtualMachines.FirstOrDefault(x => x.Id.Equals(Build.GoldVmId, StringComparison.OrdinalIgnoreCase));
+            var gallery = Discovery.Galleries.FirstOrDefault(x => x.Id.Equals(Build.GalleryId, StringComparison.OrdinalIgnoreCase));
+            var definition = Discovery.Definitions.FirstOrDefault(x => x.Id.Equals(Build.ImageDefinitionId, StringComparison.OrdinalIgnoreCase));
+            var vnet = Discovery.VirtualNetworks.FirstOrDefault(x => x.Id.Equals(Build.VirtualNetworkId, StringComparison.OrdinalIgnoreCase));
+
+            if (vm is null || gallery is null || definition is null || vnet is null)
+                throw new InvalidOperationException("One or more selected Azure resources could not be resolved. Refresh the page and review the selections.");
+
+            var subnets = await _images.GetSubnetsAsync(vnet.Id, cancellationToken);
+            if (!subnets.Any(x => x.Name.Equals(Build.SubnetName, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("The selected subnet could not be resolved in the selected virtual network.");
+
+            var defaultLocation = vm.Location;
+            VmSizes = await _images.GetVmSizesAsync(Environment.SubscriptionId, defaultLocation, cancellationToken);
+            if (!VmSizes.Contains(Build.TempVmSize, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"VM size '{Build.TempVmSize}' is not available in {defaultLocation}.");
+
+            if (Build.ReplicaCount < 1 || Build.ReplicaCount > 10)
+                throw new InvalidOperationException("Replica count must be between 1 and 10.");
+            if (Build.TargetRegions.Count == 0)
+                throw new InvalidOperationException("Select at least one target region.");
+            if (!Version.TryParse(Build.ImageVersion, out _))
+                throw new InvalidOperationException("Enter a valid image version such as 0.0.2.");
+            if (Discovery.Versions.Any(x => x.Id.Equals($"{definition.Id.TrimEnd('/')}/versions/{Build.ImageVersion}", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Image version {Build.ImageVersion} already exists in {definition.Name}.");
+
+            Review = new ImageBuildReview(vm.Name, gallery.Name, definition.Name, Build.ImageVersion, vnet.Name,
+                Build.SubnetName, Build.TempVmSize, Build.ReplicaCount, Build.TargetRegions, Build.ExcludeFromLatest);
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; }
+
+        return Page();
     }
 
     public async Task<JsonResult> OnGetSubnetsAsync(string vnetId, CancellationToken cancellationToken)
@@ -80,3 +125,7 @@ public sealed class ImageBuildInput
     public List<string> TargetRegions { get; set; } = [];
     public bool ExcludeFromLatest { get; set; }
 }
+
+public sealed record ImageBuildReview(string GoldVmName, string GalleryName, string DefinitionName, string ImageVersion,
+    string VirtualNetworkName, string SubnetName, string TempVmSize, int ReplicaCount,
+    IReadOnlyList<string> TargetRegions, bool ExcludeFromLatest);
