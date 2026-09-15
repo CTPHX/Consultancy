@@ -78,29 +78,39 @@
         <p class="muted">Choose the default network used by temporary VMs during gold image builds.</p>
         @if (Model.EnvironmentConfiguration is not null)
         {
-            <form method="post" asp-page-handler="SaveImageManagement">
-                <label class="field-label">Default virtual network</label>
-                <select asp-for="ImageManagementVirtualNetworkId" id="imageDefaultVnet" required>
-                    <option value="">Select a virtual network</option>
-                    @foreach (var v in Model.ImageManagementVirtualNetworks) { <option value="@v.Id">@v.Name</option> }
-                </select>
-                <label class="field-label">Default subnet</label>
-                <select asp-for="ImageManagementSubnetName" id="imageDefaultSubnet" data-default="@Model.ImageManagementSubnetName" required>
-                    <option value="">Select a subnet</option>
-                    @foreach (var sn in Model.ImageManagementSubnets) { <option value="@sn.Name">@sn.Name</option> }
-                </select>
-                <label class="field-label">Default temporary VM size</label>
-                <select asp-for="ImageManagementTemporaryVmSize" required>
-                    @foreach (var size in Model.ImageManagementVmSizes) { <option value="@size">@size</option> }
-                </select>
-                <label class="field-label">Default replica count</label>
-                <input asp-for="ImageManagementReplicaCount" type="number" min="1" max="10" required />
-                <label class="field-label">Default target regions</label>
-                <select asp-for="ImageManagementTargetRegions" multiple size="6" class="settings-multi-select">
-                    @foreach (var region in Model.ImageManagementRegions) { <option value="@region.Name">@region.DisplayName (@region.Name)</option> }
-                </select>
-                <small class="muted">Select one or more default replication regions. Ctrl/Cmd-click to select multiple.</small>
-                <button type="submit" class="primary-button">Save image management defaults</button>
+            <form method="post" asp-page-handler="SaveImageManagement" class="image-defaults-form">
+                <div class="image-defaults-grid">
+                    <label class="image-default-field"><span>Default virtual network</span>
+                        <select asp-for="ImageManagementVirtualNetworkId" id="imageDefaultVnet" required>
+                            <option value="">Select a virtual network</option>
+                            @foreach (var v in Model.ImageManagementVirtualNetworks) { <option value="@v.Id">@v.Name</option> }
+                        </select>
+                    </label>
+                    <label class="image-default-field"><span>Default subnet</span>
+                        <select asp-for="ImageManagementSubnetName" id="imageDefaultSubnet" data-default="@Model.ImageManagementSubnetName" required>
+                            <option value="">Select a subnet</option>
+                            @foreach (var sn in Model.ImageManagementSubnets) { <option value="@sn.Name">@sn.Name</option> }
+                        </select>
+                    </label>
+                    <label class="image-default-field"><span>Default temporary VM size</span>
+                        <select asp-for="ImageManagementTemporaryVmSize" required>
+                            @foreach (var size in Model.ImageManagementVmSizes) { <option value="@size">@size</option> }
+                        </select>
+                    </label>
+                    <label class="image-default-field"><span>Default replica count</span>
+                        <input asp-for="ImageManagementReplicaCount" type="number" min="1" max="10" required />
+                    </label>
+                </div>
+                <div class="image-regions-field">
+                    <span class="field-label">Default target regions</span>
+                    <select asp-for="ImageManagementTargetRegions" multiple size="7" class="settings-multi-select">
+                        @foreach (var region in Model.ImageManagementRegions) { <option value="@region.Name">@region.DisplayName (@region.Name)</option> }
+                    </select>
+                    <small class="muted">Select one or more default replication regions. Ctrl/Cmd-click to select multiple.</small>
+                </div>
+                <div class="image-defaults-actions">
+                    <button type="submit" class="primary-button">Save image management defaults</button>
+                </div>
             </form>
         }
     </article>
@@ -194,5 +204,5 @@
 }
 
 <style>
-.settings-multi-select{min-height:130px}.advanced-deployment-section{margin-top:22px}.advanced-heading{margin-bottom:14px}.advanced-heading h2{margin:4px 0 6px}.advanced-shared-card{min-height:auto;margin-bottom:14px}.host-pool-default-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.host-pool-default-card{min-height:auto}.host-pool-default-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}.host-pool-default-heading h3{margin:4px 0 0}.advanced-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}.advanced-fields label:not(.advanced-toggle){display:grid;gap:6px}.advanced-fields label>span{font-size:11px;color:var(--muted)}.advanced-fields input[type="text"],.advanced-fields input:not([type]),.advanced-fields select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);outline:none}.advanced-fields input:focus,.advanced-fields select:focus{border-color:var(--accent)}.advanced-wide{grid-column:1/-1}.advanced-toggle{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid var(--border);border-radius:7px}.advanced-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}@@media(max-width:1050px){.host-pool-default-grid{grid-template-columns:1fr}}@@media(max-width:700px){.advanced-fields{grid-template-columns:1fr}.advanced-wide{grid-column:auto}}
+.image-defaults-form{display:grid;gap:18px;margin-top:18px}.image-defaults-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.image-default-field{display:grid;gap:7px}.image-default-field>span,.image-regions-field>.field-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.02em}.image-default-field select,.image-default-field input,.settings-multi-select{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);outline:none}.image-default-field select:focus,.image-default-field input:focus,.settings-multi-select:focus{border-color:var(--accent)}.image-regions-field{display:grid;gap:7px}.settings-multi-select{min-height:156px;padding:6px 8px}.settings-multi-select option{padding:5px 7px}.image-defaults-actions{display:flex;justify-content:flex-start;padding-top:2px}@media(max-width:700px){.image-defaults-grid{grid-template-columns:1fr}}.advanced-deployment-section{margin-top:22px}.advanced-heading{margin-bottom:14px}.advanced-heading h2{margin:4px 0 6px}.advanced-shared-card{min-height:auto;margin-bottom:14px}.host-pool-default-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.host-pool-default-card{min-height:auto}.host-pool-default-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}.host-pool-default-heading h3{margin:4px 0 0}.advanced-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}.advanced-fields label:not(.advanced-toggle){display:grid;gap:6px}.advanced-fields label>span{font-size:11px;color:var(--muted)}.advanced-fields input[type="text"],.advanced-fields input:not([type]),.advanced-fields select{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);outline:none}.advanced-fields input:focus,.advanced-fields select:focus{border-color:var(--accent)}.advanced-wide{grid-column:1/-1}.advanced-toggle{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid var(--border);border-radius:7px}.advanced-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}@@media(max-width:1050px){.host-pool-default-grid{grid-template-columns:1fr}}@@media(max-width:700px){.advanced-fields{grid-template-columns:1fr}.advanced-wide{grid-column:auto}}
 </style>
