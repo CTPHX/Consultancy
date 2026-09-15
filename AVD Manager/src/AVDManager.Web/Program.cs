@@ -51,6 +51,8 @@ builder.Services.AddScoped<AVDManager.Web.Services.AzureAutomationService>();
 builder.Services.AddSingleton<AVDManager.Web.Services.EnvironmentConfigurationStore>();
 builder.Services.AddSingleton<AVDManager.Web.Services.DeploymentOperationStore>();
 builder.Services.AddHostedService<AVDManager.Web.Services.DeploymentOrchestrationWorker>();
+builder.Services.AddSingleton<AVDManager.Web.Services.ImageBuildOperationStore>();
+builder.Services.AddHostedService<AVDManager.Web.Services.ImageBuildOrchestrationWorker>();
 
 var app = builder.Build();
 app.UseForwardedHeaders();
