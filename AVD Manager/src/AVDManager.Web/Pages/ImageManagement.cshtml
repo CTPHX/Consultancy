@@ -30,7 +30,7 @@ else if (Model.Discovery is not null)
         <label class="field-label">Image definition</label>
         <select asp-for="Build.ImageDefinitionId" id="definition" required>
             <option value="">Select an image definition</option>
-            @foreach (var d in Model.Discovery.Definitions) { <option value="@d.Id" data-gallery="@d.GalleryName" data-name="@d.Name">@d.Name</option> }
+            @foreach (var d in Model.Discovery.Definitions) { <option value="@d.Id" data-gallery="@d.GalleryName" data-name="@d.Name" data-id="@d.Id">@d.Name</option> }
         </select>
 
         <div class="image-version-summary">
@@ -103,10 +103,13 @@ else if (Model.Discovery is not null)
  }
  function refreshVersion(){
    const g=gallery.selectedOptions[0]?.dataset.name||'', d=definition.selectedOptions[0]?.dataset.name||'';
-   const matches=versions.filter(x=>
-     (x.GalleryName??x.galleryName)===g &&
-     (x.DefinitionName??x.definitionName)===d
-   ).map(x=>x.Name??x.name);
+   const definitionId=(definition.selectedOptions[0]?.dataset.id||definition.value||'').replace(/\/$/,'').toLowerCase();
+   const matches=versions.filter(x=>{
+     const versionId=(x.Id??x.id??'').toLowerCase();
+     if(definitionId && versionId.startsWith(definitionId + '/versions/')) return true;
+     return String(x.GalleryName??x.galleryName??'').toLowerCase()===g.toLowerCase() &&
+            String(x.DefinitionName??x.definitionName??'').toLowerCase()===d.toLowerCase();
+   }).map(x=>x.Name??x.name);
    matches.sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
    const latest=matches.length?matches[matches.length-1]:null;
    document.getElementById('currentVersion').textContent=latest||'No versions';
