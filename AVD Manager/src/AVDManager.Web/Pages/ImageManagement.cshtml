@@ -43,10 +43,12 @@ else if (Model.Discovery is not null)
         <label class="field-label">Temporary VM network</label>
         <select asp-for="Build.VirtualNetworkId" id="vnet" required>
             <option value="">Select a virtual network</option>
-            @foreach (var v in Model.Discovery.VirtualNetworks) { <option value="@v.Id">@v.Name — @v.ResourceGroup</option> }
+            @foreach (var v in Model.Discovery.VirtualNetworks) { <option value="@v.Id">@v.Name</option> }
         </select>
-        <label class="field-label">Subnet name</label>
-        <input asp-for="Build.SubnetName" placeholder="snet-avd-internal-uks" required />
+        <label class="field-label">Subnet</label>
+        <select asp-for="Build.SubnetName" id="subnet" data-default="@Model.Build.SubnetName" required>
+            <option value="">Select a subnet</option>
+        </select>
 
         <details class="image-advanced"><summary>Advanced build options</summary>
             <label class="field-label">Temporary VM size</label><input asp-for="Build.TempVmSize" />
@@ -74,6 +76,7 @@ else if (Model.Discovery is not null)
 <script>
 (() => {
  const gallery=document.getElementById('gallery'), definition=document.getElementById('definition'), version=document.getElementById('imageVersion');
+ const vnet=document.getElementById('vnet'), subnet=document.getElementById('subnet');
  if(!gallery||!definition) return;
  const versions=JSON.parse(document.getElementById('imageVersions').textContent);
  function refreshDefinitions(){
@@ -98,7 +101,23 @@ else if (Model.Discovery is not null)
    if(latest){ const p=latest.split('.').map(Number); next=[p[0]||0,p[1]||0,(p[2]||0)+1].join('.'); }
    document.getElementById('proposedVersion').textContent=next; version.value=next;
  }
- gallery.addEventListener('change',refreshDefinitions); definition.addEventListener('change',refreshVersion); refreshDefinitions();
+ async function refreshSubnets(){
+   if(!vnet||!subnet) return;
+   const wanted=subnet.dataset.default||subnet.value;
+   subnet.innerHTML='<option value="">Loading subnets…</option>';
+   if(!vnet.value){ subnet.innerHTML='<option value="">Select a subnet</option>'; return; }
+   try{
+     const r=await fetch('?handler=Subnets&vnetId='+encodeURIComponent(vnet.value));
+     const items=await r.json();
+     subnet.innerHTML='<option value="">Select a subnet</option>';
+     items.forEach(x=>{ const o=document.createElement('option'); o.value=x.name??x.Name; o.textContent=x.name??x.Name; subnet.appendChild(o); });
+     if(wanted && [...subnet.options].some(o=>o.value===wanted)) subnet.value=wanted;
+     subnet.dataset.default='';
+   }catch{ subnet.innerHTML='<option value="">Could not load subnets</option>'; }
+ }
+ gallery.addEventListener('change',refreshDefinitions); definition.addEventListener('change',refreshVersion);
+ if(vnet) vnet.addEventListener('change',()=>{ if(subnet) subnet.dataset.default=''; refreshSubnets(); });
+ refreshDefinitions(); refreshSubnets();
 })();
 </script>
 }
