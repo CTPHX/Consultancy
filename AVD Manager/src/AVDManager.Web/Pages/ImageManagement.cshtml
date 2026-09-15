@@ -100,14 +100,65 @@ else
 
     @if (Model.Operations.Count > 0)
     {
+        var liveStatuses = new[] { "ReadyForAutomation", "Submitted", "New", "Activating", "Queued", "Running", "Stopping" };
         <div class="image-operations">
             <span class="eyebrow">IMAGE BUILD ACTIVITY</span>
             @foreach (var op in Model.Operations.Take(5))
             {
-                <div class="image-operation">
-                    <div><strong>@op.DefinitionName @op.ImageVersion</strong><small>@op.GoldVmName · @op.UpdatedAtUtc.ToLocalTime().ToString("g")</small></div>
-                    <div><strong>@op.Status</strong><small>@(op.ErrorMessage ?? op.LastMessage)</small></div>
-                </div>
+                var active = liveStatuses.Contains(op.Status, StringComparer.OrdinalIgnoreCase);
+                var completed = op.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase);
+                var failed = op.Status.Equals("Failed", StringComparison.OrdinalIgnoreCase);
+                <article class="image-operation-card" data-image-operation-active="@active.ToString().ToLowerInvariant()">
+                    <div class="image-operation-heading">
+                        <div>
+                            <span class="eyebrow">IMAGE VERSION</span>
+                            <h3>@op.DefinitionName @op.ImageVersion</h3>
+                            <p class="muted">@op.GoldVmName · @op.UpdatedAtUtc.ToLocalTime().ToString("g")</p>
+                        </div>
+                        <span class="status-pill @(completed ? "status-good" : failed ? "status-bad" : "status-neutral")">
+                            @op.Status
+                            @if (!string.IsNullOrWhiteSpace(op.AutomationJobId) && active)
+                            {
+                                <span class="image-build-elapsed" data-started="@((op.AutomationSubmittedAtUtc ?? op.CreatedAtUtc).ToString("O"))"></span>
+                            }
+                        </span>
+                    </div>
+                    <div class="image-operation-detail-grid">
+                        <div><span>Gallery</span><strong>@op.GalleryName</strong></div>
+                        <div><span>Definition</span><strong>@op.DefinitionName</strong></div>
+                        <div><span>Version</span><strong>@op.ImageVersion</strong></div>
+                        <div><span>Current stage</span><strong>@op.Status</strong></div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(op.LastMessage)) { <p class="operation-last-message">@op.LastMessage</p> }
+                    @if (!string.IsNullOrWhiteSpace(op.ErrorMessage)) { <p class="operation-error">@op.ErrorMessage</p> }
+                    @if (!string.IsNullOrWhiteSpace(op.AutomationJobId))
+                    {
+                        <div class="automation-job-meta">
+                            <span>Azure Automation job</span>
+                            <strong>@op.AutomationJobId</strong>
+                            <small class="muted">Status: @(op.AutomationJobStatus ?? op.Status) · Output refreshes every 10 seconds while the build is active.</small>
+                        </div>
+                        <details class="automation-output" @(active ? "open" : null)>
+                            <summary>Runbook output (@(op.AutomationOutput?.Count ?? 0))</summary>
+                            <div class="automation-output-lines">
+                                @if (op.AutomationOutput is { Count: > 0 })
+                                {
+                                    @foreach (var line in op.AutomationOutput)
+                                    {
+                                        <div class="automation-output-line">
+                                            @if (line.TimeUtc is not null) { <time>@line.TimeUtc.Value.ToLocalTime().ToString("HH:mm:ss")</time> }
+                                            <pre>@line.Text</pre>
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <p class="muted">No Output stream entries have been returned by Azure Automation yet.</p>
+                                }
+                            </div>
+                        </details>
+                    }
+                </article>
             }
         </div>
     }
@@ -161,9 +212,29 @@ else
  gallery.addEventListener('change',refreshDefinitions); definition.addEventListener('change',refreshVersion);
  if(vnet) vnet.addEventListener('change',()=>{ if(subnet) subnet.dataset.default=''; refreshSubnets(); });
  refreshDefinitions(); refreshSubnets();
+
+ // Match Deploy Hosts monitoring behaviour: refresh active image-build jobs every 10 seconds.
+ // A normal page refresh also re-runs Azure image discovery, so a newly published version
+ // becomes Current Latest automatically when the Automation job completes.
+ const activeImageBuild=document.querySelector('[data-image-operation-active="true"]');
+ if(activeImageBuild) setTimeout(()=>window.location.reload(),10000);
+
+ const elapsed=[...document.querySelectorAll('.image-build-elapsed')];
+ const updateElapsed=()=>{
+   const now=Date.now();
+   for(const el of elapsed){
+     const started=Date.parse(el.dataset.started);
+     if(!Number.isFinite(started)) continue;
+     const total=Math.max(0,Math.floor((now-started)/1000));
+     const hours=Math.floor(total/3600), minutes=Math.floor((total%3600)/60), seconds=total%60;
+     el.textContent=' · '+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0')+':'+String(seconds).padStart(2,'0');
+   }
+ };
+ updateElapsed();
+ if(elapsed.length) setInterval(updateElapsed,1000);
 })();
 </script>
 }
 <style>
-.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-grid>div{padding:12px;border:1px solid var(--border);border-radius:7px;min-width:0}.review-grid span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:5px}.review-grid strong{display:block;word-break:break-word}.review-wide{grid-column:1/-1}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}.image-operations{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}.image-operation{display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr);gap:12px;padding:11px 0;border-bottom:1px solid var(--border)}.image-operation small{display:block;color:var(--muted);margin-top:3px}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-grid>div{padding:12px;border:1px solid var(--border);border-radius:7px;min-width:0}.review-grid span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:5px}.review-grid strong{display:block;word-break:break-word}.review-wide{grid-column:1/-1}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}.image-operations{margin-top:20px;padding-top:16px;border-top:1px solid var(--border);display:grid;gap:12px}.image-operation-card{display:grid;gap:14px;padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2)}.image-operation-heading{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.image-operation-heading h3{margin:3px 0}.image-operation-heading p{margin:0}.image-operation-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.image-operation-detail-grid>div{display:grid;gap:4px;padding:11px;border:1px solid var(--border);border-radius:8px}.image-operation-detail-grid span{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.operation-last-message{margin:0}.operation-error{margin:0;color:#ff8b8b}.automation-job-meta{display:grid;gap:4px;padding:11px 12px;border:1px solid var(--border);border-radius:8px}.automation-job-meta>span{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.automation-job-meta strong{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86rem;overflow-wrap:anywhere}.automation-output{border:1px solid var(--border);border-radius:8px;overflow:hidden}.automation-output summary{cursor:pointer;padding:11px 12px;font-weight:700}.automation-output-lines{max-height:360px;overflow:auto;border-top:1px solid var(--border);padding:8px 12px;background:#0b151d}.automation-output-line{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)}.automation-output-line:last-child{border-bottom:0}.automation-output-line time{color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.76rem;padding-top:2px}.automation-output-line pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;color:#dce8f2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8rem}html[data-theme="light"] .automation-output-lines{background:#f5f8fa}html[data-theme="light"] .automation-output-line pre{color:#172532}@@media(max-width:700px){.image-operation-detail-grid{grid-template-columns:1fr}.image-operation-heading{flex-direction:column}}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
 </style>
