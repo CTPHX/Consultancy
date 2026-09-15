@@ -11,25 +11,31 @@ public sealed class SettingsModel : PageModel
     private const string DeploymentRunbookName = "DeployAVDHosts";
     private readonly AzureDiscoveryService _azureDiscovery;
     private readonly AzureAutomationService _automation;
+    private readonly AzureImageManagementService _images;
     private readonly EnvironmentConfigurationStore _configurationStore;
     private readonly ILogger<SettingsModel> _logger;
 
-    public SettingsModel(AzureDiscoveryService azureDiscovery, AzureAutomationService automation, EnvironmentConfigurationStore configurationStore, ILogger<SettingsModel> logger)
+    public SettingsModel(AzureDiscoveryService azureDiscovery, AzureAutomationService automation, AzureImageManagementService images, EnvironmentConfigurationStore configurationStore, ILogger<SettingsModel> logger)
     {
         _azureDiscovery = azureDiscovery;
         _automation = automation;
+        _images = images;
         _configurationStore = configurationStore;
         _logger = logger;
     }
 
     [BindProperty(SupportsGet = true)] public string? SubscriptionId { get; set; }
     [BindProperty] public string? AutomationAccountId { get; set; }
+    [BindProperty] public string? ImageManagementVirtualNetworkId { get; set; }
+    [BindProperty] public string? ImageManagementSubnetName { get; set; }
     [BindProperty] public DeploymentEnvironmentDefaultsInput DeploymentDefaults { get; set; } = new();
     [BindProperty] public List<HostPoolDeploymentDefaultsInput> HostPoolDeploymentDefaults { get; set; } = [];
 
     public AzureSubscription? Subscription { get; private set; }
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public IReadOnlyList<AutomationAccountOption> AutomationAccounts { get; private set; } = [];
+    public IReadOnlyList<AzureImageResource> ImageManagementVirtualNetworks { get; private set; } = [];
+    public IReadOnlyList<AzureSubnetOption> ImageManagementSubnets { get; private set; } = [];
     public string? ErrorMessage { get; private set; }
     public string DeploymentRunbook => DeploymentRunbookName;
 
@@ -83,6 +89,42 @@ public sealed class SettingsModel : PageModel
             return Page();
         }
     }
+
+    public async Task<IActionResult> OnPostSaveImageManagementAsync(CancellationToken cancellationToken)
+    {
+        var configuration = await _configurationStore.GetAsync(cancellationToken);
+        if (configuration is null) return RedirectToPage("/Onboarding");
+        if (string.IsNullOrWhiteSpace(ImageManagementVirtualNetworkId) || string.IsNullOrWhiteSpace(ImageManagementSubnetName))
+        {
+            ErrorMessage = "Select a default virtual network and subnet for image management.";
+            await LoadAsync(cancellationToken);
+            return Page();
+        }
+        var networks = (await _images.DiscoverAsync(configuration.SubscriptionId, cancellationToken)).VirtualNetworks;
+        if (!networks.Any(v => v.Id.Equals(ImageManagementVirtualNetworkId, StringComparison.OrdinalIgnoreCase)))
+        {
+            ErrorMessage = "The selected image-management virtual network was not found in this subscription.";
+            await LoadAsync(cancellationToken);
+            return Page();
+        }
+        var subnets = await _images.GetSubnetsAsync(ImageManagementVirtualNetworkId, cancellationToken);
+        if (!subnets.Any(s => s.Name.Equals(ImageManagementSubnetName, StringComparison.OrdinalIgnoreCase)))
+        {
+            ErrorMessage = "The selected subnet was not found in that virtual network.";
+            await LoadAsync(cancellationToken);
+            return Page();
+        }
+        await _configurationStore.SaveAsync(configuration with
+        {
+            SavedAtUtc = DateTimeOffset.UtcNow,
+            ImageManagementDefaults = new SavedImageManagementDefaults(ImageManagementVirtualNetworkId, ImageManagementSubnetName)
+        }, cancellationToken);
+        TempData["StatusMessage"] = "Image management network defaults saved.";
+        return RedirectToPage("/Settings");
+    }
+
+    public async Task<JsonResult> OnGetImageSubnetsAsync(string vnetId, CancellationToken cancellationToken)
+        => new(await _images.GetSubnetsAsync(vnetId, cancellationToken));
 
     public async Task<IActionResult> OnPostSaveDeploymentDefaultsAsync(CancellationToken cancellationToken)
     {
@@ -166,6 +208,7 @@ public sealed class SettingsModel : PageModel
         if (EnvironmentConfiguration is null || string.IsNullOrWhiteSpace(SubscriptionId)) return;
         AutomationAccountId ??= EnvironmentConfiguration.Automation?.AutomationAccountId;
         PopulateDeploymentInputs(EnvironmentConfiguration);
+        await LoadImageManagementNetworksAsync(EnvironmentConfiguration, cancellationToken);
         try
         {
             await LoadSubscriptionAndAutomationAsync(EnvironmentConfiguration, cancellationToken);
@@ -175,6 +218,16 @@ public sealed class SettingsModel : PageModel
             _logger.LogError(ex, "Could not load Azure environment settings for {SubscriptionId}.", SubscriptionId);
             ErrorMessage = "AVD Manager could not read the configured Azure environment with its application identity.";
         }
+    }
+
+    private async Task LoadImageManagementNetworksAsync(EnvironmentConfiguration configuration, CancellationToken cancellationToken)
+    {
+        var discovery = await _images.DiscoverAsync(configuration.SubscriptionId, cancellationToken);
+        ImageManagementVirtualNetworks = discovery.VirtualNetworks;
+        ImageManagementVirtualNetworkId ??= configuration.ImageManagementDefaults?.VirtualNetworkId;
+        ImageManagementSubnetName ??= configuration.ImageManagementDefaults?.SubnetName;
+        if (!string.IsNullOrWhiteSpace(ImageManagementVirtualNetworkId))
+            ImageManagementSubnets = await _images.GetSubnetsAsync(ImageManagementVirtualNetworkId, cancellationToken);
     }
 
     private async Task LoadSubscriptionAndAutomationAsync(EnvironmentConfiguration configuration, CancellationToken cancellationToken)
