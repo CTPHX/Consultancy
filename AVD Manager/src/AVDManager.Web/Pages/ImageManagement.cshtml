@@ -14,7 +14,7 @@ else if (Model.Discovery is not null)
     <span class="eyebrow">IMAGE BUILD REQUEST</span>
     <h2>Build gold image</h2>
     <p class="muted">Choose the source gold VM and the gallery definition that will receive the captured image.</p>
-    <form method="post" id="imageBuildForm">
+    <form method="post" id="imageBuildForm" asp-page-handler="Review">
         <label class="field-label">Gold image VM</label>
         <select asp-for="Build.GoldVmId" id="goldVm" required>
             <option value="">Select a gold image VM</option>
@@ -57,16 +57,38 @@ else if (Model.Discovery is not null)
             <label class="image-checkbox-card"><input asp-for="Build.ExcludeFromLatest" /><span><b>Exclude from latest</b><small>Do not return this version when consumers request latest.</small></span></label>
         </details>
 
-        <div class="notice warning"><b>Review stage only</b><br />The image-build form is wired to discovered Azure resources. Automation submission will be enabled after the runbook is published and validated.</div>
-        <button type="button" class="primary-button" disabled>Review image build</button>
+        <div class="notice"><b>Review before building</b><br />No Azure resources will be changed at this stage. Review the resolved build request before automation is enabled.</div>
+        <button type="submit" class="primary-button">Review image build</button>
     </form>
 </article>
 <article class="panel">
+@if (Model.Review is not null)
+{
+    <span class="eyebrow">IMAGE BUILD REVIEW</span><h2>Ready for review</h2>
+    <p class="muted">Confirm the resolved values below. No Azure changes have been made.</p>
+    <div class="review-grid">
+        <div><span>Gold image VM</span><strong>@Model.Review.GoldVmName</strong></div>
+        <div><span>Target gallery</span><strong>@Model.Review.GalleryName</strong></div>
+        <div><span>Image definition</span><strong>@Model.Review.DefinitionName</strong></div>
+        <div><span>New version</span><strong>@Model.Review.ImageVersion</strong></div>
+        <div><span>Virtual network</span><strong>@Model.Review.VirtualNetworkName</strong></div>
+        <div><span>Subnet</span><strong>@Model.Review.SubnetName</strong></div>
+        <div><span>Temporary VM size</span><strong>@Model.Review.TempVmSize</strong></div>
+        <div><span>Replica count</span><strong>@Model.Review.ReplicaCount</strong></div>
+        <div class="review-wide"><span>Target regions</span><strong>@string.Join(", ", Model.Review.TargetRegions)</strong></div>
+        <div class="review-wide"><span>Latest behaviour</span><strong>@(Model.Review.ExcludeFromLatest ? "Excluded from latest" : "Included in latest")</strong></div>
+    </div>
+    <div class="notice warning"><b>Submission not enabled yet</b><br />This review is intentionally non-destructive. The next step will connect this validated request to the durable image-build operation.</div>
+    <button type="button" class="primary-button" disabled>Build image</button>
+}
+else
+{
     <span class="eyebrow">DISCOVERED IMAGE ESTATE</span><h2>Azure Compute Gallery</h2>
     <p class="muted">@Model.Discovery.Galleries.Count gallery(s) · @Model.Discovery.Definitions.Count definition(s) · @Model.Discovery.Versions.Count version(s)</p>
     @foreach (var g in Model.Discovery.Galleries) {
       <div class="setting-row"><span><b>@g.Name</b><small>@g.ResourceGroup · @g.Location</small></span></div>
     }
+}
 
 </article>
 </div>
@@ -122,5 +144,5 @@ else if (Model.Discovery is not null)
 </script>
 }
 <style>
-.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-grid>div{padding:12px;border:1px solid var(--border);border-radius:7px;min-width:0}.review-grid span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:5px}.review-grid strong{display:block;word-break:break-word}.review-wide{grid-column:1/-1}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
 </style>
