@@ -52,7 +52,7 @@ public sealed class ImageBuildOrchestrationWorker : BackgroundService
                         ["GoldVmName"] = operation.GoldVmName,
                         ["GalleryResourceGroupName"] = operation.GalleryResourceGroup,
                         ["GalleryName"] = operation.GalleryName,
-                        ["GalleryImageDefinitionName"] = operation.DefinitionName,
+                        ["GalleryImageDefinitionName"] = GetImageDefinitionName(operation.DefinitionId, operation.GalleryName, operation.DefinitionName),
                         ["GalleryImageVersion"] = operation.ImageVersion,
                         ["NetworkResourceGroupName"] = operation.NetworkResourceGroup,
                         ["VirtualNetworkName"] = operation.VirtualNetworkName,
@@ -87,6 +87,29 @@ public sealed class ImageBuildOrchestrationWorker : BackgroundService
             }
         }
         return active.Count > 0;
+    }
+
+    private static string GetImageDefinitionName(string definitionId, string galleryName, string definitionName)
+    {
+        // Discovery normally stores the leaf image-definition name, but older/persisted
+        // operations may contain a gallery-qualified display value. The ARM resource ID
+        // is authoritative: .../galleries/{gallery}/images/{definition}.
+        var parts = definitionId.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length - 1; i++)
+        {
+            if (parts[i].Equals("images", StringComparison.OrdinalIgnoreCase))
+                return Uri.UnescapeDataString(parts[i + 1]);
+        }
+
+        var name = definitionName.Trim();
+        var slash = name.LastIndexOf('/');
+        if (slash >= 0 && slash < name.Length - 1)
+            name = name[(slash + 1)..];
+
+        if (string.IsNullOrWhiteSpace(name) || name.Equals(galleryName, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Could not resolve the gallery image definition name from resource ID '{definitionId}'.");
+
+        return name;
     }
 
     private static bool IsTerminal(string status) => status.Equals("Completed", StringComparison.OrdinalIgnoreCase) || status.Equals("Failed", StringComparison.OrdinalIgnoreCase) || status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase);
