@@ -26,8 +26,25 @@ public sealed class ImageManagementModel : PageModel
     {
         Environment = await _store.GetAsync(cancellationToken);
         if (Environment is null) return;
-        try { Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken); }
+        try
+        {
+            Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);
+            if (Environment.ImageManagementDefaults is not null)
+            {
+                Build.VirtualNetworkId = Environment.ImageManagementDefaults.VirtualNetworkId;
+                Build.SubnetName = Environment.ImageManagementDefaults.SubnetName;
+            }
+        }
         catch (Exception ex) { ErrorMessage = ex.Message; }
+    }
+
+    public async Task<JsonResult> OnGetSubnetsAsync(string vnetId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(vnetId)) return new JsonResult(Array.Empty<AzureSubnetOption>());
+        var environment = await _store.GetAsync(cancellationToken);
+        if (environment is null || !vnetId.StartsWith($"/subscriptions/{environment.SubscriptionId}/", StringComparison.OrdinalIgnoreCase))
+            return new JsonResult(Array.Empty<AzureSubnetOption>());
+        return new JsonResult(await _images.GetSubnetsAsync(vnetId, cancellationToken));
     }
 
     public string ProposedVersion(string gallery, string definition)
