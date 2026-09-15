@@ -50,7 +50,7 @@ public sealed record EnvironmentConfiguration(
     SavedDeploymentEnvironmentDefaults? DeploymentDefaults = null,
     SavedImageManagementDefaults? ImageManagementDefaults = null);
 
-public sealed record SavedImageManagementDefaults(string VirtualNetworkId, string SubnetName);
+public sealed record SavedImageManagementDefaults(\n    string VirtualNetworkId,\n    string SubnetName,\n    string TemporaryVmSize = "Standard_D2ds_v6",\n    int ReplicaCount = 1,\n    IReadOnlyList<string>? TargetRegions = null);
 
 public sealed record SavedAutomationConfiguration(
     string AutomationAccountId,
