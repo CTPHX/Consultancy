@@ -10,11 +10,13 @@ public sealed class ImageManagementModel : PageModel
 {
     private readonly EnvironmentConfigurationStore _store;
     private readonly AzureImageManagementService _images;
+    private readonly ImageBuildOperationStore _operations;
 
-    public ImageManagementModel(EnvironmentConfigurationStore store, AzureImageManagementService images)
+    public ImageManagementModel(EnvironmentConfigurationStore store, AzureImageManagementService images, ImageBuildOperationStore operations)
     {
         _store = store;
         _images = images;
+        _operations = operations;
     }
 
     [BindProperty] public ImageBuildInput Build { get; set; } = new();
@@ -24,11 +26,13 @@ public sealed class ImageManagementModel : PageModel
     public IReadOnlyList<string> VmSizes { get; private set; } = [];
     public IReadOnlyList<AzureRegionOption> Regions { get; private set; } = [];
     public ImageBuildReview? Review { get; private set; }
+    public IReadOnlyList<ImageBuildOperation> Operations { get; private set; } = [];
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         Environment = await _store.GetAsync(cancellationToken);
         if (Environment is null) return;
+        Operations = await _operations.ListAsync(cancellationToken);
         try
         {
             Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);
@@ -89,6 +93,56 @@ public sealed class ImageManagementModel : PageModel
         catch (Exception ex) { ErrorMessage = ex.Message; }
 
         return Page();
+    }
+
+
+    public async Task<IActionResult> OnPostBuildAsync(CancellationToken cancellationToken)
+    {
+        Environment = await _store.GetAsync(cancellationToken);
+        if (Environment is null) return RedirectToPage("/Onboarding");
+
+        try
+        {
+            Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);
+            var vm = Discovery.VirtualMachines.FirstOrDefault(x => x.Id.Equals(Build.GoldVmId, StringComparison.OrdinalIgnoreCase));
+            var gallery = Discovery.Galleries.FirstOrDefault(x => x.Id.Equals(Build.GalleryId, StringComparison.OrdinalIgnoreCase));
+            var definition = Discovery.Definitions.FirstOrDefault(x => x.Id.Equals(Build.ImageDefinitionId, StringComparison.OrdinalIgnoreCase));
+            var vnet = Discovery.VirtualNetworks.FirstOrDefault(x => x.Id.Equals(Build.VirtualNetworkId, StringComparison.OrdinalIgnoreCase));
+            if (vm is null || gallery is null || definition is null || vnet is null)
+                throw new InvalidOperationException("One or more selected Azure resources could not be resolved.");
+
+            var subnets = await _images.GetSubnetsAsync(vnet.Id, cancellationToken);
+            if (!subnets.Any(x => x.Name.Equals(Build.SubnetName, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("The selected subnet could not be resolved.");
+            if (!Version.TryParse(Build.ImageVersion, out _))
+                throw new InvalidOperationException("Enter a valid image version.");
+            if (Discovery.Versions.Any(x => x.Id.Equals($"{definition.Id.TrimEnd('/')}/versions/{Build.ImageVersion}", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Image version {Build.ImageVersion} already exists.");
+            if (Build.TargetRegions.Count == 0) throw new InvalidOperationException("Select at least one target region.");
+
+            static string ResourceGroup(string id)
+            {
+                var p=id.Split('/',StringSplitOptions.RemoveEmptyEntries);
+                for(var i=0;i<p.Length-1;i++) if(p[i].Equals("resourceGroups",StringComparison.OrdinalIgnoreCase)) return p[i+1];
+                throw new InvalidOperationException($"Could not resolve resource group from {id}.");
+            }
+
+            var now=DateTimeOffset.UtcNow;
+            var operation=new ImageBuildOperation(Guid.NewGuid(),now,now,"ReadyForAutomation",Environment.SubscriptionId,
+                vm.Id,vm.Name,ResourceGroup(vm.Id),vm.Location,gallery.Id,gallery.Name,ResourceGroup(gallery.Id),
+                definition.Id,definition.Name,Build.ImageVersion,vnet.Id,vnet.Name,ResourceGroup(vnet.Id),Build.SubnetName,
+                Build.TempVmSize,Build.ReplicaCount,Build.TargetRegions.ToList(),Build.ExcludeFromLatest,
+                LastMessage:"Image build request validated and queued for Azure Automation.");
+            await _operations.AddAsync(operation,cancellationToken);
+            TempData["StatusMessage"]=$"Image build {definition.Name} {Build.ImageVersion} queued.";
+            return RedirectToPage();
+        }
+        catch(Exception ex)
+        {
+            ErrorMessage=ex.Message;
+            await OnPostReviewAsync(cancellationToken);
+            return Page();
+        }
     }
 
     public async Task<JsonResult> OnGetSubnetsAsync(string vnetId, CancellationToken cancellationToken)
