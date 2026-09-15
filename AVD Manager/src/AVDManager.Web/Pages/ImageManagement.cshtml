@@ -78,8 +78,16 @@ else if (Model.Discovery is not null)
         <div class="review-wide"><span>Target regions</span><strong>@string.Join(", ", Model.Review.TargetRegions)</strong></div>
         <div class="review-wide"><span>Latest behaviour</span><strong>@(Model.Review.ExcludeFromLatest ? "Excluded from latest" : "Included in latest")</strong></div>
     </div>
-    <div class="notice warning"><b>Submission not enabled yet</b><br />This review is intentionally non-destructive. The next step will connect this validated request to the durable image-build operation.</div>
-    <button type="button" class="primary-button" disabled>Build image</button>
+    <div class="notice warning"><b>Ready to submit</b><br />Building will create temporary Azure resources, sysprep the cloned VM and publish version <strong>@Model.Review.ImageVersion</strong> to the selected Compute Gallery definition.</div>
+    <form method="post" asp-page-handler="Build" onsubmit="return confirm('Start this gold image build? Azure resources will now be created and the selected image version will be published.');">
+        <input type="hidden" asp-for="Build.GoldVmId" /><input type="hidden" asp-for="Build.GalleryId" />
+        <input type="hidden" asp-for="Build.ImageDefinitionId" /><input type="hidden" asp-for="Build.ImageVersion" />
+        <input type="hidden" asp-for="Build.VirtualNetworkId" /><input type="hidden" asp-for="Build.SubnetName" />
+        <input type="hidden" asp-for="Build.TempVmSize" /><input type="hidden" asp-for="Build.ReplicaCount" />
+        @foreach (var region in Model.Build.TargetRegions) { <input type="hidden" name="Build.TargetRegions" value="@region" /> }
+        <input type="hidden" name="Build.ExcludeFromLatest" value="@Model.Build.ExcludeFromLatest.ToString().ToLowerInvariant()" />
+        <button type="submit" class="primary-button">Build image</button>
+    </form>
 }
 else
 {
@@ -90,6 +98,19 @@ else
     }
 }
 
+    @if (Model.Operations.Count > 0)
+    {
+        <div class="image-operations">
+            <span class="eyebrow">IMAGE BUILD ACTIVITY</span>
+            @foreach (var op in Model.Operations.Take(5))
+            {
+                <div class="image-operation">
+                    <div><strong>@op.DefinitionName @op.ImageVersion</strong><small>@op.GoldVmName · @op.UpdatedAtUtc.ToLocalTime().ToString("g")</small></div>
+                    <div><strong>@op.Status</strong><small>@(op.ErrorMessage ?? op.LastMessage)</small></div>
+                </div>
+            }
+        </div>
+    }
 </article>
 </div>
 <script type="application/json" id="imageVersions">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Discovery.Versions.Select(v => new { GalleryName = v.GalleryName, DefinitionName = v.DefinitionName, Name = v.Name, Id = v.Id })))</script>
@@ -144,5 +165,5 @@ else
 </script>
 }
 <style>
-.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-grid>div{padding:12px;border:1px solid var(--border);border-radius:7px;min-width:0}.review-grid span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:5px}.review-grid strong{display:block;word-break:break-word}.review-wide{grid-column:1/-1}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
+.deploy-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:14px}.deploy-grid .panel{min-height:auto}.deploy-grid form{display:grid;gap:8px}.deploy-grid select,.deploy-grid input{width:100%;padding:11px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text)}.field-label{margin-top:8px;font-size:11px;color:var(--muted);text-transform:uppercase}.image-version-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.image-version-summary>div{padding:12px;border:1px solid var(--border);border-radius:7px}.image-version-summary strong{display:block;margin-top:5px}.image-advanced{margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:7px}.image-advanced summary{cursor:pointer;font-weight:700}.multi-select{min-height:130px}.image-checkbox-card{display:flex;align-items:flex-start;gap:12px;margin-top:12px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;cursor:pointer}.image-checkbox-card input{width:auto!important;margin:3px 0 0;flex:0 0 auto}.image-checkbox-card span{display:flex;flex-direction:column;gap:3px}.image-checkbox-card b{line-height:1.3}.image-checkbox-card small{color:var(--muted);line-height:1.4}.notice{padding:12px;border:1px solid var(--border);border-radius:7px;margin:8px 0}.review-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-grid>div{padding:12px;border:1px solid var(--border);border-radius:7px;min-width:0}.review-grid span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:5px}.review-grid strong{display:block;word-break:break-word}.review-wide{grid-column:1/-1}.image-debug{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.image-debug summary{cursor:pointer;font-weight:700}.image-debug-item{margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:7px}.image-debug-item>div{display:grid;grid-template-columns:90px 1fr;gap:8px;margin:5px 0}.image-debug-item span{font-size:11px;color:var(--muted);text-transform:uppercase}.image-debug-item code{white-space:normal;word-break:break-all;font-size:11px}.image-operations{margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}.image-operation{display:grid;grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr);gap:12px;padding:11px 0;border-bottom:1px solid var(--border)}.image-operation small{display:block;color:var(--muted);margin-top:3px}@@media(max-width:900px){.deploy-grid{grid-template-columns:1fr}}
 </style>
