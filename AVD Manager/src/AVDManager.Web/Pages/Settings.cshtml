@@ -74,6 +74,27 @@
     </article>
 
     <article class="panel settings-panel">
+        <h2>Image management</h2>
+        <p class="muted">Choose the default network used by temporary VMs during gold image builds.</p>
+        @if (Model.EnvironmentConfiguration is not null)
+        {
+            <form method="post" asp-page-handler="SaveImageManagement">
+                <label class="field-label">Default virtual network</label>
+                <select asp-for="ImageManagementVirtualNetworkId" id="imageDefaultVnet" required>
+                    <option value="">Select a virtual network</option>
+                    @foreach (var v in Model.ImageManagementVirtualNetworks) { <option value="@v.Id">@v.Name</option> }
+                </select>
+                <label class="field-label">Default subnet</label>
+                <select asp-for="ImageManagementSubnetName" id="imageDefaultSubnet" data-default="@Model.ImageManagementSubnetName" required>
+                    <option value="">Select a subnet</option>
+                    @foreach (var sn in Model.ImageManagementSubnets) { <option value="@sn.Name">@sn.Name</option> }
+                </select>
+                <button type="submit" class="primary-button">Save image management defaults</button>
+            </form>
+        }
+    </article>
+
+    <article class="panel settings-panel">
         <h2>Live updates</h2>
         <p class="muted">Automatically refresh AVD Manager pages every 30 seconds so deployment and Azure state stays current. This preference is saved in this browser.</p>
         <label class="setting-row"><input type="checkbox" data-live-update-toggle checked /><span><b>Live updates</b><small>Refresh every 30 seconds. Updates pause while you are editing a form so unsaved input is not lost.</small></span></label>
@@ -141,6 +162,24 @@
             <div class="advanced-save-row"><button type="submit" class="primary-button">Save advanced deployment defaults</button><span class="muted">These values will form the parameter set handed to DeployAVDHosts.</span></div>
         </form>
     </section>
+}
+
+@section Scripts {
+<script>
+(() => {
+ const v=document.getElementById('imageDefaultVnet'), s=document.getElementById('imageDefaultSubnet');
+ if(!v||!s) return;
+ v.addEventListener('change', async()=>{
+   s.innerHTML='<option value="">Loading subnets…</option>';
+   if(!v.value){s.innerHTML='<option value="">Select a subnet</option>';return;}
+   try{
+     const r=await fetch('?handler=ImageSubnets&vnetId='+encodeURIComponent(v.value));
+     const items=await r.json(); s.innerHTML='<option value="">Select a subnet</option>';
+     items.forEach(x=>{const o=document.createElement('option');o.value=x.name??x.Name;o.textContent=x.name??x.Name;s.appendChild(o);});
+   }catch{s.innerHTML='<option value="">Could not load subnets</option>';}
+ });
+})();
+</script>
 }
 
 <style>
