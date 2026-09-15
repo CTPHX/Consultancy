@@ -27,7 +27,7 @@ public sealed class SettingsModel : PageModel
     [BindProperty(SupportsGet = true)] public string? SubscriptionId { get; set; }
     [BindProperty] public string? AutomationAccountId { get; set; }
     [BindProperty] public string? ImageManagementVirtualNetworkId { get; set; }
-    [BindProperty] public string? ImageManagementSubnetName { get; set; }
+    [BindProperty] public string? ImageManagementSubnetName { get; set; }\n    [BindProperty] public string ImageManagementTemporaryVmSize { get; set; } = "Standard_D2ds_v6";\n    [BindProperty] public int ImageManagementReplicaCount { get; set; } = 1;\n    [BindProperty] public List<string> ImageManagementTargetRegions { get; set; } = [];
     [BindProperty] public DeploymentEnvironmentDefaultsInput DeploymentDefaults { get; set; } = new();
     [BindProperty] public List<HostPoolDeploymentDefaultsInput> HostPoolDeploymentDefaults { get; set; } = [];
 
@@ -35,7 +35,7 @@ public sealed class SettingsModel : PageModel
     public EnvironmentConfiguration? EnvironmentConfiguration { get; private set; }
     public IReadOnlyList<AutomationAccountOption> AutomationAccounts { get; private set; } = [];
     public IReadOnlyList<AzureImageResource> ImageManagementVirtualNetworks { get; private set; } = [];
-    public IReadOnlyList<AzureSubnetOption> ImageManagementSubnets { get; private set; } = [];
+    public IReadOnlyList<AzureSubnetOption> ImageManagementSubnets { get; private set; } = [];\n    public IReadOnlyList<string> ImageManagementVmSizes { get; private set; } = [];\n    public IReadOnlyList<AzureRegionOption> ImageManagementRegions { get; private set; } = [];
     public string? ErrorMessage { get; private set; }
     public string DeploymentRunbook => DeploymentRunbookName;
 
@@ -117,9 +117,9 @@ public sealed class SettingsModel : PageModel
         await _configurationStore.SaveAsync(configuration with
         {
             SavedAtUtc = DateTimeOffset.UtcNow,
-            ImageManagementDefaults = new SavedImageManagementDefaults(ImageManagementVirtualNetworkId, ImageManagementSubnetName)
+            ImageManagementDefaults = new SavedImageManagementDefaults(ImageManagementVirtualNetworkId, ImageManagementSubnetName, ImageManagementTemporaryVmSize, Math.Clamp(ImageManagementReplicaCount, 1, 10), ImageManagementTargetRegions)
         }, cancellationToken);
-        TempData["StatusMessage"] = "Image management network defaults saved.";
+        TempData["StatusMessage"] = "Image management defaults saved.";
         return RedirectToPage("/Settings");
     }
 
@@ -225,7 +225,7 @@ public sealed class SettingsModel : PageModel
         var discovery = await _images.DiscoverAsync(configuration.SubscriptionId, cancellationToken);
         ImageManagementVirtualNetworks = discovery.VirtualNetworks;
         ImageManagementVirtualNetworkId ??= configuration.ImageManagementDefaults?.VirtualNetworkId;
-        ImageManagementSubnetName ??= configuration.ImageManagementDefaults?.SubnetName;
+        ImageManagementSubnetName ??= configuration.ImageManagementDefaults?.SubnetName;\n        ImageManagementTemporaryVmSize = configuration.ImageManagementDefaults?.TemporaryVmSize ?? ImageManagementTemporaryVmSize;\n        ImageManagementReplicaCount = configuration.ImageManagementDefaults?.ReplicaCount ?? ImageManagementReplicaCount;\n        ImageManagementTargetRegions = configuration.ImageManagementDefaults?.TargetRegions?.ToList() ?? [];\n        ImageManagementRegions = await _images.GetRegionsAsync(configuration.SubscriptionId, cancellationToken);\n        var imageLocation = discovery.VirtualMachines.FirstOrDefault()?.Location ?? discovery.Galleries.FirstOrDefault()?.Location ?? "";\n        ImageManagementVmSizes = await _images.GetVmSizesAsync(configuration.SubscriptionId, imageLocation, cancellationToken);
         if (!string.IsNullOrWhiteSpace(ImageManagementVirtualNetworkId))
             ImageManagementSubnets = await _images.GetSubnetsAsync(ImageManagementVirtualNetworkId, cancellationToken);
     }
