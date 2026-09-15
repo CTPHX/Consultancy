@@ -47,7 +47,10 @@ public sealed record EnvironmentConfiguration(
     DateTimeOffset LastScannedAtUtc,
     IReadOnlyList<SavedHostPoolConfiguration> HostPools,
     SavedAutomationConfiguration? Automation = null,
-    SavedDeploymentEnvironmentDefaults? DeploymentDefaults = null);
+    SavedDeploymentEnvironmentDefaults? DeploymentDefaults = null,
+    SavedImageManagementDefaults? ImageManagementDefaults = null);
+
+public sealed record SavedImageManagementDefaults(string VirtualNetworkId, string SubnetName);
 
 public sealed record SavedAutomationConfiguration(
     string AutomationAccountId,
