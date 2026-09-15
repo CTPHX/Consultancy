@@ -20,7 +20,7 @@ public sealed class ImageManagementModel : PageModel
     [BindProperty] public ImageBuildInput Build { get; set; } = new();
     public EnvironmentConfiguration? Environment { get; private set; }
     public ImageManagementDiscovery? Discovery { get; private set; }
-    public string? ErrorMessage { get; private set; }
+    public string? ErrorMessage { get; private set; }\n    public IReadOnlyList<string> VmSizes { get; private set; } = [];\n    public IReadOnlyList<AzureRegionOption> Regions { get; private set; } = [];
 
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
@@ -28,11 +28,11 @@ public sealed class ImageManagementModel : PageModel
         if (Environment is null) return;
         try
         {
-            Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);
+            Discovery = await _images.DiscoverAsync(Environment.SubscriptionId, cancellationToken);\n            Regions = await _images.GetRegionsAsync(Environment.SubscriptionId, cancellationToken);\n            var defaultLocation = Discovery.VirtualMachines.FirstOrDefault()?.Location ?? Discovery.Galleries.FirstOrDefault()?.Location ?? "";\n            VmSizes = await _images.GetVmSizesAsync(Environment.SubscriptionId, defaultLocation, cancellationToken);
             if (Environment.ImageManagementDefaults is not null)
             {
                 Build.VirtualNetworkId = Environment.ImageManagementDefaults.VirtualNetworkId;
-                Build.SubnetName = Environment.ImageManagementDefaults.SubnetName;
+                Build.SubnetName = Environment.ImageManagementDefaults.SubnetName;\n                Build.TempVmSize = Environment.ImageManagementDefaults.TemporaryVmSize;\n                Build.ReplicaCount = Environment.ImageManagementDefaults.ReplicaCount;\n                Build.TargetRegions = Environment.ImageManagementDefaults.TargetRegions?.ToList() ?? [];
             }
         }
         catch (Exception ex) { ErrorMessage = ex.Message; }
@@ -69,6 +69,6 @@ public sealed class ImageBuildInput
     public string SubnetName { get; set; } = "";
     public string TempVmSize { get; set; } = "Standard_D2ds_v6";
     public int ReplicaCount { get; set; } = 1;
-    public string TargetRegions { get; set; } = "";
+    public List<string> TargetRegions { get; set; } = [];
     public bool ExcludeFromLatest { get; set; }
 }
