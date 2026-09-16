@@ -558,12 +558,6 @@ try {
 
     Write-Log "Using OS disk as source: $osDiskId"
 
-    $osDiskImage = @{
-        Source = @{
-            Id = $osDiskId
-        }
-    }
-
     New-AzGalleryImageVersion `
         -ResourceGroupName $GalleryResourceGroupName `
         -GalleryName $GalleryName `
@@ -571,7 +565,7 @@ try {
         -Name $versionNumber `
         -Location $Location `
         -TargetRegion $targetRegionsParam `
-        -OSDiskImage $osDiskImage `
+        -SourceImageId ([string]$osDiskId) `
         -PublishingProfileExcludeFromLatest:$ExcludeFromLatest `
         -ErrorAction Stop | Out-Null
 
