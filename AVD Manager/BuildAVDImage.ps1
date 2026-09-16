@@ -544,19 +544,26 @@ catch {
 try {
     Write-Log "Publishing to Azure Compute Gallery from OS disk..."
 
-    $targetRegionsParam = @()
-    foreach ($region in $TargetRegions) {
-        $targetRegionsParam += @{
-            Name               = $region
-            ReplicaCount       = $ReplicaCount
-            StorageAccountType = "Standard_LRS"
+    [hashtable[]]$targetRegionsParam = @(
+        foreach ($region in $TargetRegions) {
+            @{
+                Name               = [string]$region
+                ReplicaCount       = [int]$ReplicaCount
+                StorageAccountType = [string]"Standard_LRS"
+            }
         }
-    }
+    )
 
     $sourceVm = Get-AzVM -ResourceGroupName $TempRG -Name $tempVmName -ErrorAction Stop
     $osDiskId = $sourceVm.StorageProfile.OsDisk.ManagedDisk.Id
 
     Write-Log "Using OS disk as source: $osDiskId"
+
+    $osDiskImage = @{
+        Source = @{
+            Id = [string]$osDiskId
+        }
+    }
 
     New-AzGalleryImageVersion `
         -ResourceGroupName $GalleryResourceGroupName `
@@ -565,7 +572,7 @@ try {
         -Name $versionNumber `
         -Location $Location `
         -TargetRegion $targetRegionsParam `
-        -SourceImageId ([string]$osDiskId) `
+        -OSDiskImage $osDiskImage `
         -PublishingProfileExcludeFromLatest:$ExcludeFromLatest `
         -ErrorAction Stop | Out-Null
 
