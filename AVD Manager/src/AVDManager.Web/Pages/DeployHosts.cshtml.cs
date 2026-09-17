@@ -110,7 +110,7 @@ public sealed class DeployHostsModel : PageModel
             hostPoolResourceGroup, VmNamePrefix.Trim(), SessionHostCount, VmSize.Trim(), GalleryImageVersion.Trim(),
             ReplaceExisting, ReplaceExisting ? GracePeriodHours : 0, ReplaceExisting && ForceLogoffAtDeadline,
             ReplaceExisting ? now.AddHours(GracePeriodHours) : null, 0, null, null,
-            "Deployment workflow created. No Azure Automation job has been submitted.", null,
+            "Deployment workflow created.", null,
             ReplaceExisting
                 ? pool.SessionHosts.Select(host => new DeploymentHostState(host.Name, host.AllowNewSession ?? true)).ToList()
                 : null);
@@ -125,7 +125,7 @@ public sealed class DeployHostsModel : PageModel
                 {
                     UpdatedAtUtc = DateTimeOffset.UtcNow,
                     Status = "ReadyForAutomation",
-                    LastMessage = "Deployment request is validated and ready for Azure Automation submission. Submission is intentionally not enabled in this test stage."
+                    LastMessage = "Deployment request is validated and ready for Azure Automation submission."
                 };
                 await _operationStore.UpdateAsync(operation, cancellationToken);
                 StatusMessage = "Deployment workflow created and ready for the next Automation stage.";
@@ -277,7 +277,7 @@ public sealed class DeployHostsModel : PageModel
                 ? "No user sessions remain. The operation is ready for the next Automation stage."
                 : deadlineExpired
                     ? operation.ForceLogoffAtDeadline
-                        ? $"{count} user session(s) remain and the grace deadline has expired. Forced logoff is configured but is intentionally not executed in this test stage."
+                        ? $"{count} user session(s) remain and the grace deadline has expired. Forced logoff is configured."
                         : $"{count} user session(s) remain and the grace deadline has expired. The operation will not proceed automatically."
                     : $"{count} user session(s) remain. The grace period is still running.";
 
@@ -325,7 +325,7 @@ public sealed class DeployHostsModel : PageModel
                     ? "No user sessions remain. The operation is ready for the next Automation stage."
                     : deadlineExpired
                         ? operation.ForceLogoffAtDeadline
-                            ? $"{count} user session(s) remain and the grace deadline has expired. Forced logoff is configured but is intentionally not executed in this test stage."
+                            ? $"{count} user session(s) remain and the grace deadline has expired. Forced logoff is configured."
                             : $"{count} user session(s) remain and the grace deadline has expired. The operation will continue waiting for users to log off normally."
                         : $"{count} user session(s) remain. The grace period is still running.";
 
